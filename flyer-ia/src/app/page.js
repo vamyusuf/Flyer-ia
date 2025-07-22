@@ -173,7 +173,7 @@ export default function HomePage() {
           </fieldset>
           
           <button type="submit" disabled={isLoading || !imageFile} className="generate-btn">
-            {isLoading ? `Génération en cours...` : `Intégrer le Texte sur l'Image`}
+             {isLoading ? `Génération en cours...` : `Intégrer le Texte sur l'Image`}
           </button>
         </form>
 
