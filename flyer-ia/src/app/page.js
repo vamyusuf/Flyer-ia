@@ -105,7 +105,7 @@ export default function HomePage() {
     <div className="App">
       <header className="App-header">
         <h1>Générateur de Flyer par IA</h1>
-        <p>Importez votre design de base, ajoutez votre texte, et laissez l'IA l'intégrer parfaitement.</p>
+        <p>Importez votre design de base, ajoutez votre texte, et laissez l&apos;IA l&apos;intégrer parfaitement.</p>
       </header>
 
       <main>
@@ -113,7 +113,7 @@ export default function HomePage() {
           {/* --- SECTION 1 : IMAGE DE BASE --- */}
           <fieldset>
             <legend>1. Image de Base</legend>
-            <p className="field-description">Fournissez l'image de fond sur laquelle le texte sera ajouté.</p>
+            <p className="field-description">Fournissez l&apos;image de fond sur laquelle le texte sera ajouté.</p>
             <label htmlFor="image-upload-input" className="custom-file-upload">{imageFile ? "Changer l'image" : "Choisir une image de fond"}</label>
             <input id="image-upload-input" type="file" accept="image/*" onChange={handleImageChange} required />
             {imagePreview && <div className="image-preview-container"><img src={imagePreview} alt="Aperçu" className="image-preview" /></div>}
@@ -179,7 +179,7 @@ export default function HomePage() {
 
         {/* --- SECTION RÉSULTATS --- */}
         <div className="result-container">
-          {isLoading && <div className="loading-container"><div className="loader"></div><p>Analyse de l'image et intégration du texte...</p></div>}
+          {isLoading && <div className="loading-container"><div className="loader"></div><p>Analyse de l&apos;image et intégration du texte...</p></div>}
           {error && <p className="error-message">Erreur : {error}</p>}
           {generatedFlyerUrls.length > 0 && (
             <div>
