@@ -87,7 +87,8 @@ export default function HomePage() {
     // ------------------------------------------
 
     try {
-      const response = await fetch('http://localhost:5000/api/generate-flyer-from-prototype', { 
+      //const response = await fetch('http://localhost:5000/api/generate-flyer-from-prototype', { 
+      const response = await fetch('/api/generate-flyer-from-prototype', { 
         method: 'POST', 
         body: formData 
       });
