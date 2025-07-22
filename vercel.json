@@ -20,5 +20,6 @@
       "src": "/api/(.*)",
       "dest": "flyer-ia/backend/app.py" 
     }
-    ]
+    ],
+   "rewrites": [{ "source": "/(.*)", "destination": "/page.js" }]
 }
