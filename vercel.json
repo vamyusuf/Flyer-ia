@@ -7,7 +7,8 @@
       "config": {
         "maxLambdaSize": "15mb",
         "runtime": "python3.12"
-      }
+      },
+      "installCommand": "pip install -r flyer-ia/backend/requirements.txt" 
     },
     {
       "src": "flyer-ia/package.json",    
