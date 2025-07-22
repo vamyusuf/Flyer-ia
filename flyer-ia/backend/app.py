@@ -1,66 +1,48 @@
-from flask import Flask, request, jsonify, send_file
+# FLYER-IA/flyer-ia/backend/app.py
+
+from flask import Flask, request, jsonify # send_file n'est plus nécessaire car les fichiers sont servis par Replicate
 from flask_cors import CORS
 import openai 
-import requests
+# requests n'est plus nécessaire car on ne télécharge pas l'image de Replicate pour la sauvegarder
 import replicate
 from replicate.exceptions import ReplicateError
-from replicate.helpers import FileOutput
+from replicate.helpers import FileOutput 
+# PIL, io, uuid ne sont plus nécessaires pour la gestion du résultat final (sauvegarde locale)
+# mais PIL et io peuvent être gardés si vous avez besoin de lire/traiter l'image d'ENTREE.
 from PIL import Image 
-import io
+import io 
 import base64
 import os
-import uuid
+# uuid n'est plus utilisé car on ne nomme pas de fichiers locaux pour les flyers générés
+# sys n'est plus utilisé car les vérifications critiques sont gérées par les exceptions Flask
 from dotenv import load_dotenv
 import traceback
-import sys
 
 load_dotenv()
 
 app = Flask(__name__)
-CORS(app, resources={r"/api/*": {"origins": "*"}})
+# ATTENTION: '*' est très permissif. En production, remplacez par l'URL exacte de votre frontend déployé (ex: 'https://votre-frontend.vercel.app')
+CORS(app, resources={r"/api/*": {"origins": "*"}}) 
 
-# --- CONFIGURATION AVEC DIAGNOSTICS ---
-print("🔍 Vérification des variables d'environnement...")
-
+# --- CONFIGURATION ---
+# Suppression des diagnostics de démarrage pour la production, car Vercel gère l'environnement.
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN")
 
-print(f"OPENAI_API_KEY: {'✅ Définie' if OPENAI_API_KEY else '❌ Manquante'}")
-print(f"REPLICATE_API_TOKEN: {'✅ Définie' if REPLICATE_API_TOKEN else '❌ Manquante'}")
-
 if not OPENAI_API_KEY:
-    print("❌ ERREUR CRITIQUE: OPENAI_API_KEY manquante")
-    print("💡 Créez un fichier .env avec: OPENAI_API_KEY=votre_cle")
-    sys.exit(1)
-
+    # Utilisez une exception qui sera capturée par le FlaskErrorHandler si l'API est appelée
+    raise ValueError("ERREUR: La variable d'environnement OPENAI_API_KEY n'est pas définie.")
 if not REPLICATE_API_TOKEN:
-    print("❌ ERREUR CRITIQUE: REPLICATE_API_TOKEN manquante")
-    print("💡 Créez un fichier .env avec: REPLICATE_API_TOKEN=votre_token")
-    sys.exit(1)
+    raise ValueError("ERREUR: La variable d'environnement REPLICATE_API_TOKEN n'est pas définie.")
 
-# Test de connexion aux APIs
-print("🔍 Test des connexions API...")
+os.environ["REPLICATE_API_TOKEN"] = REPLICATE_API_TOKEN
+print("✅ Replicate/Imagen configuré")
 
-try:
-    # Test OpenAI
-    test_client = openai.OpenAI(api_key=OPENAI_API_KEY)
-    print("✅ OpenAI: Connexion OK")
-except Exception as e:
-    print(f"❌ OpenAI: Erreur de connexion: {e}")
-
-try:
-    # Test Replicate
-    os.environ["REPLICATE_API_TOKEN"] = REPLICATE_API_TOKEN
-    print("✅ Replicate: Token configuré")
-except Exception as e:
-    print(f"❌ Replicate: Erreur de configuration: {e}")
-
-UPLOAD_FOLDER = 'generated_flyers'
-if not os.path.exists(UPLOAD_FOLDER):
-    os.makedirs(UPLOAD_FOLDER)
-    print(f"✅ Dossier créé: {UPLOAD_FOLDER}")
-else:
-    print(f"✅ Dossier existant: {UPLOAD_FOLDER}")
+# CORRECTION MAJEURE: Suppression de toute logique de création de dossier local ou de stockage
+# UPLOAD_FOLDER n'est plus nécessaire. Vous pouvez le supprimer ou le laisser sans l'utiliser.
+# if not os.path.exists(UPLOAD_FOLDER):
+#     os.makedirs(UPLOAD_FOLDER)
+# Ces lignes sont commentées car le système de fichiers Vercel est en lecture seule.
 
 class FlyerGenerator:
     def __init__(self, api_key):
@@ -69,33 +51,35 @@ class FlyerGenerator:
             print("✅ FlyerGenerator initialisé")
         except Exception as e:
             print(f"❌ Erreur initialisation FlyerGenerator: {e}")
-            raise
+            raise # Remonter l'erreur pour la gestion Flask
 
     def describe_image_style(self, style_image_bytes):
         print("🔍 [Étape 1/2] Début analyse de l'image...")
         
         try:
-            print(f"   📏 Taille de l'image: {len(style_image_bytes)} bytes")
-            
-            # Vérifier que l'image est valide
-            test_image = Image.open(io.BytesIO(style_image_bytes))
-            print(f"   ✅ Image valide: {test_image.size}, format: {test_image.format}")
+            # Diagnostics utiles pour le débogage (peut être retiré en production)
+            # print(f"   📏 Taille de l'image: {len(style_image_bytes)} bytes")
+            # try:
+            #     test_image = Image.open(io.BytesIO(style_image_bytes))
+            #     print(f"   ✅ Image valide: {test_image.size}, format: {test_image.format}")
+            # except Exception as e:
+            #     print(f"   ⚠️ L'image d'entrée n'a pas pu être lue par PIL: {e}") # Non bloquant si GPT-4o peut la traiter
             
             img_base64 = base64.b64encode(style_image_bytes).decode('utf-8')
-            print(f"   ✅ Image encodée en base64: {len(img_base64)} caractères")
+            # print(f"   ✅ Image encodée en base64: {len(img_base64)} caractères")
             
+            # CORRECTION: Revertir le prompt pour qu'il soit dynamique
             prompt = """
-            Analyze this image and describe its visual style in detail. Focus on:
-            - Color palette and lighting
-            - Architectural or design elements
-            - Overall mood and atmosphere
-            - Typography style (if any text is visible)
-            - Layout and composition
-            
-            Provide a detailed description that could be used to recreate a similar visual style.
+            En tant que directeur artistique expert en design graphique pour des flyers, analysez l'image fournie.
+            Votre tâche est de générer une description concise et professionnelle du style visuel, de l'ambiance générale,
+            de la palette de couleurs dominante et des éléments graphiques clés qui définissent son esthétique.
+            Cette description servira de base pour générer une image de fond de flyer.
+            Concentrez-vous STRICTEMENT sur l'aspect visuel.
+            NE MENTIONNEZ AUCUN TEXTE, LOGO OU SYMBOLE QUI POURRAIT ÊTRE PRÉSENT DANS L'IMAGE.
+            Votre réponse doit être un paragraphe unique, détaillé et évocateur, d'une qualité comparable à celle d'un brief pour un graphiste.
             """
             
-            print("   🤖 Envoi à GPT-4o...")
+            print("   🤖 Envoi à GPT-4o pour description...")
             response = self.client.chat.completions.create(
                 model="gpt-4o",
                 messages=[{
@@ -109,8 +93,7 @@ class FlyerGenerator:
             )
             
             description = response.choices[0].message.content
-            print(f"   ✅ Description reçue: {len(description)} caractères")
-            print(f"   📝 Aperçu: {description[:100]}...")
+            print(f"   ✅ Description reçue: {len(description)} caractères. Aperçu: {description[:100]}...")
             return description
             
         except Exception as e:
@@ -128,10 +111,10 @@ class FlyerGenerator:
             footer_info = content_data.get('footer_info', '')
 
             print(f"   📝 Contenu à intégrer:")
-            print(f"      - Titre: {headline[:50]}...")
-            print(f"      - Description: {description[:50]}...")
-            print(f"      - Événement: {event_info[:50]}...")
-            print(f"      - Footer: {footer_info[:50]}...")
+            print(f"      - Titre: {headline[:50]}{'...' if len(headline) > 50 else ''}")
+            print(f"      - Description: {description[:50]}{'...' if len(description) > 50 else ''}")
+            print(f"      - Événement: {event_info[:50]}{'...' if len(event_info) > 50 else ''}")
+            print(f"      - Footer: {footer_info[:50]}{'...' if len(footer_info) > 50 else ''}")
 
             imagen_prompt = f"""Create a professional vertical flyer in a 9:16 aspect ratio.
 
@@ -151,7 +134,7 @@ Requirements:
 - No extra text or symbols"""
 
             print(f"   📏 Longueur du prompt: {len(imagen_prompt)} caractères")
-            print("   🚀 Envoi à Imagen 4...")
+            print("   🚀 Envoi à Imagen 4 (Replicate)...")
             
             output = replicate.run(
                 "google/imagen-4",
@@ -165,43 +148,46 @@ Requirements:
             )
             
             print(f"   📨 Type de réponse Imagen: {type(output)}")
-            print(f"   📋 Contenu réponse: {str(output)[:200]}...")
+            print(f"   📋 Contenu réponse (extrait): {str(output)[:200]}...")
             
             image_url = None
             if not output: 
                 raise Exception("Replicate returned empty response")
             
-            if isinstance(output, list): 
-                image_url = output[0] if output else None
+            # Extraction de l'URL de l'image
+            if isinstance(output, list) and output: 
+                image_url = output[0]
                 print(f"   📋 URL extraite de liste: {image_url}")
             elif isinstance(output, (str, FileOutput)): 
                 image_url = str(output)
                 print(f"   📋 URL directe: {image_url}")
             
             if not image_url: 
-                raise Exception(f"Could not extract URL. Output type: {type(output)}, content: {output}")
+                raise Exception(f"Could not extract URL from Replicate response. Output type: {type(output)}, content: {output}")
             
-            print(f"   ✅ Image générée avec succès: {image_url}")
-            return image_url
+            print(f"   ✅ Image générée avec succès ! URL: {image_url}")
+            return image_url # <-- C'est l'URL externe hébergée par Replicate
             
         except Exception as e:
             print(f"   ❌ Erreur dans generate_full_flyer_with_all_text: {e}")
             print(f"   📋 Traceback: {traceback.format_exc()}")
             raise
 
-# Initialisation avec gestion d'erreur
+# Initialisation du générateur
 try:
     flyer_gen = FlyerGenerator(api_key=OPENAI_API_KEY)
     print("✅ Générateur initialisé avec succès")
 except Exception as e:
-    print(f"❌ ERREUR CRITIQUE lors de l'initialisation: {e}")
-    sys.exit(1)
+    print(f"❌ ERREUR CRITIQUE lors de l'initialisation du générateur: {e}")
+    # Ne pas sys.exit(1) ici pour permettre à Flask de démarrer et de renvoyer une erreur 500
+    # Cela permet à Vercel de mieux diagnostiquer le problème.
+    raise
 
 # --- ROUTES FLASK AVEC DIAGNOSTICS COMPLETS ---
 @app.route('/api/generate-flyer-from-prototype', methods=['POST'])
 def generate_flyer_from_prototype():
     print("\n" + "="*80)
-    print("🚀 NOUVELLE REQUÊTE DE GÉNÉRATION")
+    print("🚀 NOUVELLE REQUÊTE DE GÉNÉRATION API")
     print("="*80)
     
     try:
@@ -236,12 +222,13 @@ def generate_flyer_from_prototype():
             print(f"   ❌ {error_msg}")
             return jsonify({'error': error_msg}), 400
 
-        # Test ouverture image
+        # Test ouverture image d'entrée (peut être bloquant si l'image est corrompue)
         try:
-            test_img = Image.open(io.BytesIO(style_image_bytes))
-            print(f"   ✅ Image valide: {test_img.size}, mode: {test_img.mode}")
+            Image.open(io.BytesIO(style_image_bytes))
+            print(f"   ✅ Image d'entrée valide (test PIL)")
         except Exception as e:
-            error_msg = f"Image corrompue ou format invalide: {e}"
+            # Cette erreur doit être renvoyée au client pour une meilleure UX
+            error_msg = f"L'image fournie est invalide ou corrompue: {e}"
             print(f"   ❌ {error_msg}")
             return jsonify({'error': error_msg}), 400
 
@@ -255,8 +242,8 @@ def generate_flyer_from_prototype():
         for key, value in content_data.items():
             print(f"      - {key}: {value[:50]}{'...' if len(value) > 50 else ''}")
 
-        if not any(content_data.values()):
-            error_msg = "Aucun contenu textuel fourni"
+        if not any(content_data.values()) and not style_image_bytes: # Vérifier au moins une donnée significative
+            error_msg = "Aucun contenu (image ou texte) fourni. Veuillez au moins fournir une image."
             print(f"   ❌ {error_msg}")
             return jsonify({'error': error_msg}), 400
 
@@ -268,68 +255,46 @@ def generate_flyer_from_prototype():
             style_description = flyer_gen.describe_image_style(style_image_bytes)
             print("   ✅ Phase 2 terminée: Image analysée")
         except Exception as e:
-            error_msg = f'Erreur analyse GPT-4o: {str(e)}'
+            error_msg = f'Erreur lors de l\'analyse du style de l\'image par GPT-4o: {str(e)}'
             print(f"   ❌ {error_msg}")
             return jsonify({'error': error_msg}), 500
 
         # === PHASE 3: GÉNÉRATION AVEC IMAGEN ===
         print("\n🔍 Phase 3: Génération avec Imagen 4")
         try:
+            # final_flyer_image_url contiendra directement l'URL de Replicate
             final_flyer_image_url = flyer_gen.generate_full_flyer_with_all_text(style_description, content_data)
             print("   ✅ Phase 3 terminée: Flyer généré")
         except Exception as e:
-            error_msg = f'Erreur génération Imagen: {str(e)}'
+            error_msg = f'Erreur lors de la génération du flyer avec Imagen (Replicate): {str(e)}'
             print(f"   ❌ {error_msg}")
             return jsonify({'error': error_msg}), 500
         
-        # === PHASE 4: TÉLÉCHARGEMENT ET SAUVEGARDE ===
-        print("\n🔍 Phase 4: Téléchargement et sauvegarde")
-        try:
-            print(f"   📥 Téléchargement depuis: {final_flyer_image_url}")
-            response = requests.get(final_flyer_image_url, timeout=30)
-            response.raise_for_status()
-            print(f"   ✅ Téléchargement réussi: {len(response.content)} bytes")
-            
-            final_flyer_image_bytes = io.BytesIO(response.content)
-            final_flyer_image = Image.open(final_flyer_image_bytes).convert("RGB")
-            print(f"   ✅ Image ouverte: {final_flyer_image.size}")
-        except Exception as e:
-            error_msg = f'Erreur téléchargement: {str(e)}'
-            print(f"   ❌ {error_msg}")
-            return jsonify({'error': error_msg}), 500
-
-        # Sauvegarde
-        filename = f"flyer_{uuid.uuid4()}.png"
-        filepath = os.path.join(UPLOAD_FOLDER, filename)
+        # === PAS DE PHASE 4 (téléchargement/sauvegarde locale), CAR SERVI DIRECTEMENT PAR REPLICATE ===
+        # Les lignes suivantes sont supprimées pour un déploiement Vercel avec Replicate:
+        # response = requests.get(final_flyer_image_url, timeout=30)
+        # final_flyer_image = Image.open(io.BytesIO(response.content))
+        # filename = f"flyer_{uuid.uuid4()}.png"
+        # final_flyer_image.save(filepath, 'PNG', quality=95)
+        # server_url = request.host_url.rstrip('/')
+        # flyer_url = f"{server_url}/flyers/{filename}"
         
-        try:
-            final_flyer_image.save(filepath, 'PNG', quality=95)
-            print(f"   ✅ Sauvegarde réussie: {filepath}")
-        except Exception as e:
-            error_msg = f'Erreur sauvegarde: {str(e)}'
-            print(f"   ❌ {error_msg}")
-            return jsonify({'error': error_msg}), 500
-        
-        # === PHASE 5: RÉPONSE FINALE ===
-        server_url = request.host_url.rstrip('/')
-        flyer_url = f"{server_url}/flyers/{filename}"
+        # === PHASE FINALE: RÉPONSE AU CLIENT ===
+        # L'URL retournée est l'URL de Replicate directement
+        flyer_url_for_frontend = final_flyer_image_url
         
         print(f"\n✅ SUCCÈS COMPLET!")
-        print(f"   🎉 URL finale: {flyer_url}")
+        print(f"   🎉 URL finale du flyer (Replicate): {flyer_url_for_frontend}")
         print("="*80 + "\n")
         
         return jsonify({
             'success': True,
-            'flyer_urls': [flyer_url],
-            'message': 'Flyer généré avec succès!',
-            'debug_info': {
-                'filename': filename,
-                'image_size': final_flyer_image.size,
-                'file_size_bytes': len(response.content)
-            }
+            'flyer_urls': [flyer_url_for_frontend],
+            'message': 'Flyer généré avec succès avec l\'IA et hébergé par Replicate.'
         })
 
     except Exception as e:
+        # Gérer toutes les erreurs non capturées pour renvoyer un JSON
         print(f"\n❌ ERREUR FATALE DANS LA ROUTE PRINCIPALE:")
         print(f"   🔥 Erreur: {e}")
         print(f"   📋 Type: {type(e).__name__}")
@@ -337,53 +302,23 @@ def generate_flyer_from_prototype():
         traceback.print_exc()
         print("="*80 + "\n")
         
+        # S'assurer que le client reçoit toujours un JSON même pour les erreurs inattendues
         return jsonify({
-            'error': f"Erreur interne: {str(e)}",
+            'error': f"Une erreur interne est survenue sur le serveur: {str(e)}",
             'error_type': type(e).__name__,
-            'debug': True
+            'debug_info_for_dev': "Vérifiez les logs du serveur pour plus de détails."
         }), 500
 
-@app.route('/flyers/<filename>')
-def serve_flyer(filename):
-    try:
-        filepath = os.path.join(UPLOAD_FOLDER, filename)
-        print(f"📁 Demande de fichier: {filename}")
-        print(f"   📍 Chemin: {filepath}")
-        print(f"   ✅ Existe: {os.path.exists(filepath)}")
-        
-        if not os.path.exists(filepath):
-            return jsonify({'error': 'Fichier non trouvé'}), 404
-            
-        return send_file(filepath, mimetype='image/png')
-    except Exception as e:
-        print(f"❌ Erreur service fichier {filename}: {e}")
-        return jsonify({'error': 'Erreur lors de la récupération du fichier'}), 500
+# CORRECTION MAJEURE: Suppression de la route de service des fichiers locaux, car les images sont servies par Replicate.
+# @app.route('/flyers/<filename>')
+# def serve_flyer(filename):
+#     # ... (code précédent de cette route)
+#     pass # Laisser vide ou supprimer complètement
 
-@app.route('/api/health', methods=['GET'])
-def health_check():
-    try:
-        # Test des composants
-        health_status = {
-            'status': 'OK',
-            'timestamp': str(uuid.uuid4()),
-            'components': {
-                'openai': 'OK' if OPENAI_API_KEY else 'ERROR - No API key',
-                'replicate': 'OK' if REPLICATE_API_TOKEN else 'ERROR - No token',
-                'upload_folder': 'OK' if os.path.exists(UPLOAD_FOLDER) else 'ERROR - Missing folder'
-            }
-        }
-        return jsonify(health_status)
-    except Exception as e:
-        return jsonify({'status': 'ERROR', 'error': str(e)}), 500
-
-if __name__ == '__main__':
-    print("\n🚀 DÉMARRAGE DU SERVEUR FLASK")
-    print(f"📁 Dossier de sauvegarde: {os.path.abspath(UPLOAD_FOLDER)}")
-    print(f"🌐 Serveur accessible sur: http://localhost:5000")
-    print(f"🔧 Mode debug: Activé")
-    print("="*80)
-    
-    app.run(debug=True, port=5000, host='0.0.0.0')
+# CORRECTION MAJEURE: Suppression du bloc de démarrage local pour le déploiement sur Vercel.
+# if __name__ == '__main__':
+#    # ... (code précédent de démarrage local)
+#    pass # Laisser vide ou supprimer complètement
 
 
 
