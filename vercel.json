@@ -2,26 +2,25 @@
   "version": 2,
   "builds": [
     {
-      "src": "backend/app.py",  
+      "src": "flyer-ia/backend/app.py",  // Chemin corrigé pour l'imbrication
       "use": "@vercel/python",
       "config": {
-        "maxLambdaSize": "15mb", 
-        "runtime": "python3.12"  
+        "maxLambdaSize": "15mb",
+        "runtime": "python3.11"
       }
     },
     {
-      "src": "package.json",    
+      "src": "flyer-ia/package.json",    // Chemin corrigé pour l'imbrication
       "use": "@vercel/next"
     }
   ],
   "routes": [
     {
-      "src": "/api/(.*)",       
-      "dest": "backend/app.py"  
-    },
-    {
-      "src": "/(.*)",            
-      "dest": "/$1"             
+      "src": "/api/(.*)",
+      "dest": "flyer-ia/backend/app.py"  // Chemin corrigé pour l'imbrication
     }
+    // Pas de route générique "/(.*)" ici, Vercel gère le Next.js.
+    // Si le frontend Next.js ne se charge pas, vous pourriez avoir besoin
+    // d'ajouter un "outputDirectory" ou des "rewrites", mais essayons sans d'abord.
   ]
 }
