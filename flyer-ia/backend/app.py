@@ -195,9 +195,9 @@ def generate_flyer_from_prototype():
 def serve_flyer(filename):
     return send_file(os.path.join(UPLOAD_FOLDER, filename), mimetype='image/png')
 
-if __name__ == '__main__':
-    print("🚀 Démarrage du serveur Flask (mode 100% IA texte/image avec Imagen 4)...")
-    app.run(debug=True, port=5000)
+# if __name__ == '__main__':
+#     print("🚀 Démarrage du serveur Flask (mode 100% IA texte/image avec Imagen 4)...")
+#     app.run(debug=True, port=5000)
 
 
 

@@ -1,0 +1,7 @@
+flask
+flask-cors
+openai
+requests
+Pillow
+python-dotenv
+replicate
