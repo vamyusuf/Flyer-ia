@@ -1,9 +1,8 @@
-
 {
   "version": 2,
   "builds": [
     {
-      "src": "flyer-ia/backend/app.py",  
+      "src": "flyer-ia/backend/app.py", 
       "use": "@vercel/python",
       "config": {
         "maxLambdaSize": "15mb",
@@ -17,9 +16,12 @@
   ],
   "routes": [
     {
-      "src": "/api/(.*)",
-      "dest": "flyer-ia/backend/app.py" 
+      "src": "/api/(.*)",       
+      "dest": "flyer-ia/backend/app.py"  
+    },
+    {
+      "src": "/(.*)",           
+      "dest": "flyer-ia/$1"     
     }
-    ],
-   "rewrites": [{ "source": "/(.*)", "destination": "/page.js" }]
+  ]
 }
