@@ -70,14 +70,8 @@ class FlyerGenerator:
             
             # CORRECTION: Revertir le prompt pour qu'il soit dynamique
             prompt = """
-            En tant que directeur artistique expert en design graphique pour des flyers, analysez l'image fournie.
-            Votre tâche est de générer une description concise et professionnelle du style visuel, de l'ambiance générale,
-            de la palette de couleurs dominante et des éléments graphiques clés qui définissent son esthétique.
-            Cette description servira de base pour générer une image de fond de flyer.
-            Concentrez-vous STRICTEMENT sur l'aspect visuel.
-            NE MENTIONNEZ AUCUN TEXTE, LOGO OU SYMBOLE QUI POURRAIT ÊTRE PRÉSENT DANS L'IMAGE.
-            Votre réponse doit être un paragraphe unique, détaillé et évocateur, d'une qualité comparable à celle d'un brief pour un graphiste.
-            """
+            The visual style is elegant and contemplative, blending refined Islamic architectural elements with celestial symbolism to evoke a serene yet festive nocturnal atmosphere. The composition is airy and balanced, featuring softly illuminated domes and slender minarets silhouetted against a twilight gradient sky. A stylized crescent moon, delicate and luminous, serves as a central visual anchor, subtly radiating a sense of spiritual elevation. The color palette is dominated by warm, muted tones—amber golds, deep indigos, and soft terracotta—layered with gentle highlights of pearl and ivory to create depth and sophistication. Ornamental patterns are used sparingly and with finesse, ensuring the overall aesthetic remains modern, dignified, and imbued with quiet reverence. This background sets the perfect tone for a prestigious evening celebration steeped in cultural richness and celestial harmony.
+"""
             
             print("   🤖 Envoi à GPT-4o pour description...")
             response = self.client.chat.completions.create(
@@ -120,18 +114,31 @@ class FlyerGenerator:
 
 Style and atmosphere: {style_description}
 
-The flyer must include ONLY the following text, perfectly integrated:
+🔒 IMPORTANT INSTRUCTIONS:
 
-Title: {headline}
-Description: {description}
-Event details: {event_info}
-Contact: {footer_info}
+Do not add any extra symbols, logos, decorative characters, or placeholder text.
 
-Requirements:
-- Clean, elegant, professional layout
-- Clear text hierarchy
-- Legible typography
-- No extra text or symbols"""
+Do not generate any text outside of the provided input.
+
+The flyer must include ONLY the following text, perfectly integrated and well-structured, with **absolute fidelity to spelling and grammar**:
+
+ {headline}
+ {description}
+ {event_info}
+ {footer_info}
+
+🧩 Design Requirements:
+
+Ensure all text is clearly legible and **free of any spelling or grammatical errors**.
+
+Layout should be clean, elegant, and professional.
+
+Text should be visually well-positioned with a clear hierarchy (title, body, details, footer).
+
+Integrate text directly into the image with seamless alignment to the design.
+
+❌ Absolutely no extra or unintended text, symbols, or unreadable artifacts in the image.
+"""
 
             print(f"   📏 Longueur du prompt: {len(imagen_prompt)} caractères")
             print("   🚀 Envoi à Imagen 4 (Replicate)...")
