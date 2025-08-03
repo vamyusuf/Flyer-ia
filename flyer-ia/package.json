@@ -10,9 +10,12 @@
   },
   "dependencies": {
     "geist": "^1.4.2",
+    "html2canvas": "^1.4.1",
     "next": "15.4.2",
-    "react": "19.1.0",
-    "react-dom": "19.1.0"
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "react-draggable": "^4.5.0",
+    "react-resizable": "^3.0.5"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",
