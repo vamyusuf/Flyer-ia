@@ -1,7 +1,7 @@
 import flask
 from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
-import openai
+import openai 
 import replicate
 from replicate.exceptions import ReplicateError
 from replicate.helpers import FileOutput
@@ -15,18 +15,16 @@ import traceback
 import json
 import time
 import requests
-import re # Importation nécessaire pour les expressions régulières
+import re
 
 load_dotenv()
 
 app = Flask(__name__)
-# CORS for development and deployment (adjust origins as needed for production)
+# CORS pour le développement et le déploiement (ajuster les origines si besoin pour la production)
 CORS(app, resources={r"/api/*": {"origins": ["http://localhost:3000", "https://your-frontend-domain.com"]}})
 
-
 # --- CONFIGURATION ---
-# Assurez-vous que ces variables d'environnement sont définies
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY") 
 REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN")
 
 if not OPENAI_API_KEY:
@@ -34,7 +32,6 @@ if not OPENAI_API_KEY:
 if not REPLICATE_API_TOKEN:
     raise ValueError("ERREUR: La variable d'environnement REPLICATE_API_TOKEN n'est pas définie.")
 
-# Replicate utilise REPLICATE_API_TOKEN de l'environnement, pas besoin de le définir ici si déjà en env
 os.environ["REPLICATE_API_TOKEN"] = REPLICATE_API_TOKEN
 print("✅ Replicate configuré.")
 
@@ -44,6 +41,60 @@ REPLICATE_TIMEOUT = 600 # secondes (10 minutes) pour les opérations longues com
 # Paramètres pour la logique de réessai
 MAX_RETRIES = 5
 INITIAL_RETRY_DELAY_SECONDS = 2
+
+# Fonction utilitaire pour parser les couleurs
+def parse_color_string_to_rgba(color_string, default_alpha=255):
+    """
+    Convertit une chaîne de couleur (HEX ou RGBA CSS) en un tuple RGBA pour PIL.
+    """
+    if isinstance(color_string, tuple):
+        return color_string
+
+    if not isinstance(color_string, str):
+        return (0, 0, 0, default_alpha)
+
+    color_string = color_string.strip()
+
+    # Tentative de parsage HEX
+    if color_string.startswith('#'):
+        hex_val = color_string.lstrip('#')
+        try:
+            if len(hex_val) == 6: # RRGGBB
+                return tuple(int(hex_val[i:i+2], 16) for i in (0, 2, 4)) + (default_alpha,)
+            elif len(hex_val) == 8: # RRGGBBAA
+                return tuple(int(hex_val[i:i+2], 16) for i in (0, 2, 4, 6))
+        except ValueError:
+            print(f"   ⚠️ Erreur de parsage HEX: {color_string}")
+            return (0, 0, 0, default_alpha)
+
+    # Tentative de parsage RGBA/RGB CSS
+    if color_string.startswith('rgb'):
+        try:
+            matches = re.findall(r'(\d+(\.\d+)?|\d+%)', color_string)
+            if len(matches) >= 3:
+                r = int(matches[0][0].strip('%')) if '%' in matches[0][0] else int(matches[0][0])
+                g = int(matches[1][0].strip('%')) if '%' in matches[1][0] else int(matches[1][0])
+                b = int(matches[2][0].strip('%')) if '%' in matches[2][0] else int(matches[2][0])
+                
+                # Conversion des pourcentages si nécessaire
+                # Si la valeur est un pourcentage (indiqué par '%' ou > 100), la convertir
+                if ('%' in matches[0][0] or r > 100) and r <= 255: r = int(r * 2.55) 
+                if ('%' in matches[1][0] or g > 100) and g <= 255: g = int(g * 2.55)
+                if ('%' in matches[2][0] or b > 100) and b <= 255: b = int(b * 2.55)
+                
+                # S'assurer que les valeurs sont entre 0 et 255
+                r = min(255, max(0, r))
+                g = min(255, max(0, g))
+                b = min(255, max(0, b))
+
+                a = float(matches[3][0]) if len(matches) > 3 else 1.0
+                return (r, g, b, int(a * 255))
+        except (ValueError, IndexError):
+            print(f"   ⚠️ Erreur de parsage RGBA/RGB: {color_string}")
+            return (0, 0, 0, default_alpha)
+            
+    print(f"   ⚠️ Format de couleur inconnu: '{color_string}'. Utilisation de la couleur par défaut.")
+    return (0, 0, 0, default_alpha)
 
 class IslamicFlyerGenerator:
     def __init__(self, api_key_unused):
@@ -68,8 +119,8 @@ class IslamicFlyerGenerator:
                 if e.status == 429:
                     print(f"   ⚠️ Replicate a renvoyé 429 (trop de requêtes). Réessai dans {current_delay:.1f}s...")
                     time.sleep(current_delay)
-                    current_delay *= 2 # Backoff exponentiel
-                    if current_delay > 60: # Cap à 60 secondes
+                    current_delay *= 2
+                    if current_delay > 60:
                         current_delay = 60
                 else:
                     print(f"   ❌ Erreur Replicate inattendue (non 429): {e}")
@@ -84,45 +135,29 @@ class IslamicFlyerGenerator:
         raise ReplicateError(f"Échec de l'appel au modèle '{model_name}' après {max_retries} tentatives.")
 
     def extract_logo_colors_and_styles_with_gpt4o(self, logo_image_bytes):
-        """
-        Extrait les couleurs dominantes du logo et fournit une analyse de style générale
-        avec GPT-4o, incluant des suggestions pour les couleurs d'arrière-plan Imagen.
-        """
         print("🎨 Extraction des couleurs et styles du logo avec GPT-4o...")
-
         try:
-            # Convertir l'image en base64 pour GPT-4o
-            logo_base64 = base64.b64encode(logo_image_bytes).decode('utf-8')
+            logo_base64 = base66.b64encode(logo_image_bytes).decode('utf-8')
             logo_data_url = f"data:image/png;base64,{logo_base64}"
-
             prompt = """
             Analyze this organization logo image and provide:
-
             1.  **COLOR EXTRACTION**: Extract the 5-8 most dominant and visually significant HEX colors from this logo. Focus on:
                 -   Primary brand colors that define the organization's identity.
                 -   Secondary colors that complement the design.
                 -   Avoid pure black (#000000) or pure white (#FFFFFF) unless they are clearly intentional brand colors.
                 -   Prefer rich, saturated colors that work well for Islamic-themed designs.
                 -   Include both lighter and darker variations for design flexibility.
-
             2.  **LOGO DOMINANT COLOR**: Identify the single most dominant color from the extracted list (as HEX).
-
             3.  **READABLE TEXT COLORS**: Suggest 2-3 HEX colors from the extracted logo palette that would provide good contrast and readability for text placed on a flyer, especially considering potential light or dark backgrounds.
-
             4.  **IMAGEN COLOR DESCRIPTIONS**: For the colors identified (both extracted and suggested Islamic palette), provide **natural language descriptions** (e.g., "deep forest green", "vibrant emerald", "warm gold", "sky blue", "subtle beige"). These will be used to instruct an image generation AI about colors, *without using HEX codes*. These descriptions should be short and evocative.
-
             5.  **ISLAMIC PALETTE SUGGESTIONS**: Beyond the logo colors, suggest 2-3 additional HEX colors that are culturally compatible with Islamic design (e.g., specific greens, golds, blues, browns) and would harmonize with the logo's palette.
-
             6.  **DESIGN ANALYSIS**: Analyze the logo's visual characteristics:
                 -   Overall style (modern, traditional, elegant, bold, etc.)
                 -   Typography style if text is present
                 -   Visual weight and balance
                 -   Cultural appropriateness for Islamic events.
-
             7.  **BACKGROUND COLOR SUGGESTIONS (for Imagen/AI Image Generation)**: Based on the logo's colors, style, and general Islamic aesthetics, suggest specific HEX codes for an Islamic flyer's *generated background image*. These should be harmonious with the logo but suitable for a decorative background. Suggest a dominant background color and 1-2 complementary accent colors for gradients or subtle patterns *within the generated image*.
-
             Provide your response in this exact JSON format. DO NOT include any other text, markdown, or explanation outside the JSON. Ensure all color values are valid HEX codes (e.g., "#RRGGBB").
-
             {
                 "extracted_colors": ["#RRGGBB", "#RRGGBB", "#RRGGBB", "#RRGGBB", "#RRGGBB"],
                 "logo_dominant_color": "#RRGGBB",
@@ -153,10 +188,8 @@ class IslamicFlyerGenerator:
                     "complementary_background_accents": ["#RRGGBB", "#RRGGBB"]
                 }
             }
-
             Focus on extracting colors that will create beautiful, professional Islamic-themed flyers.
             """
-
             print("   🤖 Envoi à GPT-4o pour analyse du logo...")
             output = self._replicate_run_with_retries(
                 "openai/gpt-4o",
@@ -168,50 +201,35 @@ class IslamicFlyerGenerator:
                 },
                 timeout=REPLICATE_TIMEOUT
             )
-
             response_str = "".join(output)
             print(f"   ✅ Réponse GPT-4o reçue: {len(response_str)} caractères")
-
             try:
-                # Tente de nettoyer la réponse si elle contient du markdown JSON
                 if response_str.strip().startswith("```json"):
                     response_str = response_str.strip("```json\n").strip("```")
-
                 analysis = json.loads(response_str)
-
-                # Validation basique des données
                 if not isinstance(analysis, dict) or 'extracted_colors' not in analysis:
                     raise ValueError("Format de réponse invalide ou données manquantes.")
-
-                # S'assurer que imagen_color_descriptions existe ou ajouter un défaut
                 if 'imagen_color_descriptions' not in analysis:
                     print("   ⚠️ 'imagen_color_descriptions' manquant, ajout des valeurs par défaut.")
                     analysis['imagen_color_descriptions'] = self._get_default_logo_analysis()['imagen_color_descriptions']
-
-
                 print(f"   ✅ {len(analysis['extracted_colors'])} couleurs extraites avec GPT-4o: {analysis['extracted_colors']}")
-
                 return analysis
-
             except json.JSONDecodeError as e:
-                print(f"   ⚠️ Erreur de parsing JSON pour l'analyse du logo: {e}")
-                print(f"   Réponse GPT-4o brute qui a échoué: \n{response_str[:500]}...") # Log part of the failing response
+                print(f"   ⚠️ Erreur de parsage JSON pour l'analyse du logo: {e}")
+                print(f"   Réponse GPT-4o brute qui a échoué: \n{response_str[:500]}...")
                 return self._get_default_logo_analysis()
-
         except Exception as e:
             print(f"   ❌ Erreur lors de l'analyse du logo avec GPT-4o: {e}")
             print(f"   📋 Traceback: {traceback.format_exc()}")
             return self._get_default_logo_analysis()
 
-
     def _get_default_logo_analysis(self):
-        """Analyse par défaut si GPT-4o échoue"""
         print("   ⚠️ Utilisation de l'analyse de logo par défaut.")
         return {
             "extracted_colors": ["#1B4332", "#2D6A4F", "#40916C", "#D4AF37", "#8B4513"],
             "logo_dominant_color": "#2D6A4F",
             "readable_text_colors": ["#D4AF37", "#40916C"],
-            "imagen_color_descriptions": { # Default descriptions for Imagen
+            "imagen_color_descriptions": {
                 "dominant_bg": "deep dark blue",
                 "complementary_bg_accents": ["dark forest green", "emerald green"],
                 "extracted_logo_colors": ["deep green", "teal green", "light green", "golden yellow", "brown"]
@@ -244,59 +262,22 @@ class IslamicFlyerGenerator:
         """
         print("🕌 [Étape 2/3] Génération de l'arrière-plan islamique inspiré du logo...")
 
-        # --- UTILISER LES DESCRIPTIONS DE COULEURS POUR IMAGEN, PAS LES HEX BRUTS ---
         imagen_color_descs = logo_analysis.get('imagen_color_descriptions', self._get_default_logo_analysis()['imagen_color_descriptions'])
         dominant_bg_desc = imagen_color_descs['dominant_bg']
         complementary_bg_accents_descs = ', '.join(imagen_color_descs['complementary_bg_accents'])
         extracted_logo_colors_descs = ', '.join(imagen_color_descs['extracted_logo_colors'])
 
-        # Utilisation des descriptions naturelles pour le prompt Imagen
         color_description_for_imagen = f"Dominant: {dominant_bg_desc}. Accents: {complementary_bg_accents_descs}. Logo colors: {extracted_logo_colors_descs}"
-
-        # Extraire des termes spécifiques du contenu pour les interdire explicitement dans l'image
-        # La liste est BEAUCOUP plus agressive maintenant.
-        forbidden_content_terms = [
-            content_data.get('headline1', ''),
-            content_data.get('short_description', ''),
-            content_data.get('event_info', ''),
-            content_data.get('footer_info', ''),
-            background_description,
-        ]
-
-        # Ajouter les composants alphanumériques des codes HEX (sans le #) à la liste noire
-        all_hex_codes_flat = []
-        for hc_list in [logo_analysis.get('extracted_colors', []),
-                        logo_analysis.get('readable_text_colors', []),
-                        logo_analysis.get('islamic_palette_suggestions', []),
-                        [logo_analysis['ai_suggested_background_colors']['dominant_background_color']],
-                        logo_analysis['ai_suggested_background_colors']['complementary_background_accents']]:
-            for hex_code in hc_list:
-                if isinstance(hex_code, str):
-                    all_hex_codes_flat.append(hex_code.lstrip('#').upper())
-
-        # Ajouter les numéros extraits du contenu
-        for k, v in content_data.items():
-            numbers = re.findall(r'\d+', str(v)) # Extrait toutes les séquences de chiffres
-            forbidden_content_terms.extend(numbers)
-
-        # Aplatir et nettoyer la liste des termes interdits
-        # Utiliser re.findall pour extraire uniquement les mots alphanumériques et les mettre en majuscules
-        all_terms_processed = []
-        for term_item in forbidden_content_terms + all_hex_codes_flat:
-            words = re.findall(r'\b[a-zA-Z0-9]+\b', term_item) # Ne prend que les mots composés de lettres/chiffres
-            all_terms_processed.extend([word.upper() for word in words if len(word) > 1]) # Convertir en majuscules et filtrer les mono-caractères
-
-        forbidden_terms_str = ", ".join(sorted(list(set(all_terms_processed)))) # Unique et trié
 
         # --- PROMPT IMAGEN OPTIMISÉ EXTRÊMEMENT STRICT CONTRE LE TEXTE ET SYMBOLES ---
         imagen_prompt = f"""
-        ABSOLUTELY NO TEXT. NO NUMBERS. NO SYMBOLS. NO WRITING. NO CALLIGRAPHY. NO BRANDING. NO LOGOS. NO WATERMARKS. NO LOREM IPSUM. NO GIBBERISH. NO CHARACTERS. NO LETTERS. NO WORDS. NO TYPOGRAPHY. NO SIGNS. NO LABELS. THIS IS THE HIGHEST PRIORITY AND MUST BE STRICTLY FOLLOWED. DO NOT EVER GENERATE ANY FORM OF TEXT OR TEXT-LIKE ARTIFACTS. THE IMAGE MUST BE PURELY VISUAL AND DECORATIVE.
+        ABSOLUTELY NO TEXT. NO NUMBERS. NO SYMBOLS. NO WRITING. NO CALLIGRAPHY. NO BRANDING. NO LOGOS. NO WATERMARKS. NO LOREM IPSUM. NO GIBBERISH. NO CHARACTERS. NO LETTERS. NO WORDS. NO TYPOGRAPHY. NO SIGNS. NO LABELS. THIS IS THE HIGHEST PRIORITY AND MUST BE STRICTLY FOLLOWED. DO NOT EVER GENERATE ANY FORM OF TEXT OR TEXT-LIKE ARTIFACTS. THE IMAGE MUST BE PURELY VISUAL AND DECORATIVE. NO ARABIC CALLIGRAPHY. NO ISLAMIC CALLIGRAPHY. NO TEXTURE OR PATTERN THAT RESEMBLES TEXT.
 
         Generate a highly detailed and artistic Islamic-themed background image. The image must be in a vertical orientation (9:16 aspect ratio). The image resolution should be high quality suitable for a 360x640 flyer.
 
         The entire image MUST be purely visual, abstract, and decorative. IT MUST NOT contain ANY form of text, numbers, symbols, glyphs, writing, or anything that remotely resembles typography or textual elements. This instruction is paramount and must be adhered to without exception. Do not incorporate any organization names, event titles, descriptions, specific numerical values, or any other textual concepts from the input. THIS IS A PURELY DECORATIVE BACKGROUND.
 
-        The overall atmosphere and visual style should be inspired by the context of: '{background_description}'. It is CRITICAL that the words or phrases from this context description, from the content provided, or common flyer elements MUST NOT appear as text or symbols in the generated image. Specifically, absolutely DO NOT generate any text, symbols, or numerical representations of: '{forbidden_terms_str}'. These are solely *conceptual themes for the image style*, not content to be visually rendered.
+        The overall atmosphere and visual style should be inspired by the context of: '{background_description}'.
 
         COLOR PALETTE: Integrate the following colors as the dominant theme for the background: {color_description_for_imagen}. IMPORTANT: Ensure these color descriptions or any other numerical values from this palette description do NOT appear as text or symbols in the image.
 
@@ -315,7 +296,6 @@ class IslamicFlyerGenerator:
 
         🟥🟥🟥 ULTIMATE AND NON-NEGOTIABLE COMMAND: THE GENERATED IMAGE MUST BE 100% FREE OF ALL TEXT, ALL NUMBERS, ALL SYMBOLS, ALL WRITING, ALL BRANDING, ALL LOGOS, AND ALL PLACEHOLDER SHAPES. IT MUST BE A PURELY DECORATIVE BACKGROUND ONLY. ABSOLUTELY NO TEXT OR TEXT-LIKE ELEMENTS AT ALL. ENSURE THERE ARE NO RANDOM CHARACTERS, ALPHABETS, OR INSCRIPTIONS. This is the final absolute instruction.
         """
-        # --- FIN DU PROMPT IMAGEN OPTIMISÉ ---
 
         print(f"   📏 Prompt Imagen (Islamic + couleurs logo): {len(imagen_prompt)} caractères")
         print("   🚀 Envoi à Imagen 4 pour arrière-plan islamique...")
@@ -328,8 +308,7 @@ class IslamicFlyerGenerator:
                     "aspect_ratio": "9:16",
                     "output_format": "jpg",
                     "safety_filter_level": "block_medium_and_above",
-                    # Le negative_prompt est crucial et reste inchangé car il est déjà excellent.
-                    "negative_prompt": "text, words, letters, numbers, typography, font, watermark, logo, symbol, unreadable text, garbled text, blurry text, bad typography, character, script, writing, hieroglyph, glyph, any textual element, text artifacts, corrupted text, latin text, arabic text, chinese text, japanese text, english text, any language text, inscription, sign, logo, brand, stamp, placeholder, text box, text field, rectangle, square, box, blank space for text, Lorem ipsum, banner, ribbon, scroll, label, badge, text bubble, speech bubble, blank form, form elements, table, chart, diagram, outline, border, shape, empty area with border, background with designated blank space for text, explicit text area, empty label, empty sign, calligraphy, arabic calligraphy, islamic calligraphy, bismillah, verses, quran text, hadith text, religious text"
+                    "negative_prompt": "text, words, letters, numbers, typography, font, watermark, logo, symbol, unreadable text, garbled text, blurry text, bad typography, character, script, writing, hieroglyph, glyph, any textual element, text artifacts, corrupted text, latin text, arabic text, chinese text, japanese text, english text, any language text, inscription, sign, logo, brand, stamp, placeholder, text box, text field, rectangle, square, box, blank space for text, explicit text area, empty label, empty sign, calligraphy, arabic calligraphy, islamic calligraphy, bismillah, verses, quran text, hadith text, religious text, banner, ribbon" # Ajout "banner", "ribbon" pour éviter les zones de texte implicites
                 },
                 timeout=REPLICATE_TIMEOUT
             )
@@ -357,10 +336,6 @@ class IslamicFlyerGenerator:
             raise
 
     def get_ai_design_suggestions(self, background_image_url, logo_analysis, content_data):
-        """
-        Analyse visuellement l'arrière-plan généré et suggère des styles et positions
-        de texte et de logo optimaux via GPT-4o.
-        """
         print("📝 [Étape 3/3] Suggestion de styles de texte et position du logo (analyse visuelle IA)...")
 
         try:
@@ -369,10 +344,9 @@ class IslamicFlyerGenerator:
             event_info_content = content_data.get('event_info', 'Date: May 15, 2024 - Time: 7:00 PM - Venue: The Grand Palace, Paris')
             footer_info_content = content_data.get('footer_info', 'Contact: info@mosque-event.com | www.mosque-event.com | +212-522-12-34-56')
 
-            # Utiliser les couleurs et recommandations de l'analyse du logo
             extracted_colors = logo_analysis.get('extracted_colors', [])
-            readable_text_colors = logo_analysis.get('readable_text_colors', ["#FFFFFF", "#000000"]) # Fallback
-            islamic_palette_suggestions = logo_analysis.get('islamic_palette_suggestions', ["#D4AF37", "#40916C"]) # Fallback
+            readable_text_colors = logo_analysis.get('readable_text_colors', ["#FFFFFF", "#000000"])
+            islamic_palette_suggestions = logo_analysis.get('islamic_palette_suggestions', ["#D4AF37", "#40916C"])
             logo_style = logo_analysis.get('logo_style_analysis', {})
             logo_dominant_color = logo_analysis.get('logo_dominant_color', "#FFFFFF")
 
@@ -406,46 +380,51 @@ From a visual analysis of the flyer background and logo characteristics:
 
 **OUTPUT FORMAT (JSON only, no extra text):**
 
-{
-  "headline": {
+{{
+  "headline": {{
     "fontFamily": "string",
     "color": "#RRGGBB",
     "fontSizePx": number,
-    "fontWeight": "normal|bold|lighter|bolder|numeric",
+    "fontWeight": "normal|bold|lighter|bolder",
     "textAlign": "center|left|right",
     "lineHeightEm": number,
     "initialTopPercentage": number,
     "initialWidthPercentage": number,
-    "initialLeftPercentage": number
-  },
-  "body": { 
+    "initialLeftPercentage": number,
+    "textShadow": "2px 2px 4px rgba(0,0,0,0.8)"
+  }},
+  "body": {{
       "fontFamily": "string",
     "color": "#RRGGBB",
     "fontSizePx": number,
-    "fontWeight": "normal|bold|lighter|bolder|numeric",
+    "fontWeight": "normal|bold|lighter|bolder",
     "textAlign": "center|left|right",
     "lineHeightEm": number,
     "initialTopPercentage": number,
     "initialWidthPercentage": number,
-    "initialLeftPercentage": number },
-  "event_info": {"fontFamily": "string",
+    "initialLeftPercentage": number,
+    "textShadow": "2px 2px 4px rgba(0,0,0,0.8)"
+  }},
+  "event_info": {{"fontFamily": "string",
     "color": "#RRGGBB",
     "fontSizePx": number,
-    "fontWeight": "normal|bold|lighter|bolder|numeric",
+    "fontWeight": "normal|bold|lighter|bolder",
     "textAlign": "center|left|right",
     "lineHeightEm": number,
     "initialTopPercentage": number,
     "initialWidthPercentage": number,
-    "initialLeftPercentage": number},
-  "footer": {"fontFamily": "string",
+    "initialLeftPercentage": number,
+    "textShadow": "2px 2px 4px rgba(0,0,0,0.8)"}},
+  "footer": {{"fontFamily": "string",
     "color": "#RRGGBB",
     "fontSizePx": number,
-    "fontWeight": "normal|bold|lighter|bolder|numeric",
+    "fontWeight": "normal|bold|lighter|bolder",
     "textAlign": "center|left|right",
     "lineHeightEm": number,
     "initialTopPercentage": number,
     "initialWidthPercentage": number,
-    "initialLeftPercentage": number},
+    "initialLeftPercentage": number,
+    "textShadow": "2px 2px 4px rgba(0,0,0,0.8)"}},
   "logo": {
     "initialTopPercentage": number,
     "initialLeftPercentage": number,
@@ -458,7 +437,7 @@ From a visual analysis of the flyer background and logo characteristics:
       "blurPx": number
     }
   }
-}
+}}
 
 Return only the JSON object.
 """
@@ -468,7 +447,7 @@ Return only the JSON object.
                 "openai/gpt-4o",
                 input_data={
                     "prompt": full_prompt_text,
-                    "image_input": [background_image_url], # C'est ici que l'image est envoyée pour analyse
+                    "image_input": [background_image_url],
                     "max_completion_tokens": 1500,
                     "temperature": 0.7
                 },
@@ -479,13 +458,11 @@ Return only the JSON object.
             print(f"   ✅ Suggestions reçues: {len(suggestions_str)} caractères")
 
             try:
-                # Tente de nettoyer la réponse si elle contient du markdown JSON
                 if suggestions_str.strip().startswith("```json"):
                     suggestions_str = suggestions_str.strip("```json\n").strip("```")
 
                 suggestions = json.loads(suggestions_str)
 
-                # Validation basique
                 if not isinstance(suggestions, dict):
                     raise ValueError("Les suggestions ne sont pas au format JSON dict.")
 
@@ -503,22 +480,20 @@ Return only the JSON object.
             return self._get_default_islamic_styles(logo_analysis)
 
     def _get_default_islamic_styles(self, logo_analysis):
-        """Styles par défaut basés sur l'analyse du logo si l'IA visuelle échoue."""
         print("   ⚠️ Utilisation des styles de texte par défaut.")
         colors = logo_analysis.get('extracted_colors', [])
-        readable_colors = logo_analysis.get('readable_text_colors', ["#FFFFFF", "#000000"]) # Fallback
+        readable_colors = logo_analysis.get('readable_text_colors', ["#FFFFFF", "#000000"])
         logo_dominant_color = logo_analysis.get('logo_dominant_color', "#2D6A4F")
 
-        # Utilisation de couleurs de texte lisibles basées sur l'analyse du logo, ou des valeurs sûres
         headline_color = readable_colors[0] if readable_colors else "#D4AF37"
         body_color = readable_colors[1] if len(readable_colors) > 1 else "#FFFFFF"
         event_info_color = logo_dominant_color if logo_dominant_color else "#40916C"
         footer_color = readable_colors[0] if readable_colors else "#D4AF37"
 
-        # Polices par défaut, assurez-vous qu'elles correspondent aux TTF disponibles
-        default_headline_font = "Playfair Display, serif"
+        # Mise à jour des polices par défaut pour correspondre aux FONT_OPTIONS simplifiées
+        default_headline_font = "Arial, sans-serif"
         default_body_font = "Roboto, sans-serif"
-        default_info_footer_font = "Open Sans, sans-serif"
+        default_info_footer_font = "Arial, sans-serif"
 
         return {
             "headline": {
@@ -530,7 +505,8 @@ Return only the JSON object.
                 "lineHeightEm": 1.2,
                 "initialTopPercentage": 10,
                 "initialWidthPercentage": 90,
-                "initialLeftPercentage": 5
+                "initialLeftPercentage": 5,
+                "textShadow": "2px 2px 4px rgba(0,0,0,0.8)"
             },
             "body": {
                 "fontFamily": default_body_font,
@@ -541,18 +517,20 @@ Return only the JSON object.
                 "lineHeightEm": 1.5,
                 "initialTopPercentage": 35,
                 "initialWidthPercentage": 85,
-                "initialLeftPercentage": 7.5
+                "initialLeftPercentage": 7.5,
+                "textShadow": "2px 2px 4px rgba(0,0,0,0.8)"
             },
             "event_info": {
                 "fontFamily": default_info_footer_font,
                 "color": event_info_color,
                 "fontSizePx": 22,
-                "fontWeight": "600",
+                "fontWeight": "bold",
                 "textAlign": "center",
                 "lineHeightEm": 1.3,
                 "initialTopPercentage": 65,
                 "initialWidthPercentage": 88,
-                "initialLeftPercentage": 6
+                "initialLeftPercentage": 6,
+                "textShadow": "2px 2px 4px rgba(0,0,0,0.8)"
             },
             "footer": {
                 "fontFamily": default_info_footer_font,
@@ -563,131 +541,179 @@ Return only the JSON object.
                 "lineHeightEm": 1.4,
                 "initialTopPercentage": 88,
                 "initialWidthPercentage": 95,
-                "initialLeftPercentage": 2.5
+                "initialLeftPercentage": 2.5,
+                "textShadow": "2px 2px 4px rgba(0,0,0,0.8)"
             },
-            # --- AJOUT DES VALEURS PAR DÉFAUT POUR LE LOGO ---
             "logo": {
-                "initialTopPercentage": 25, # Positionnement par défaut
-                "initialLeftPercentage": 50, # Positionnement par défaut (50% pour le centre)
-                "initialWidthPercentage": 30, # Largeur par défaut (30% de la largeur du flyer)
-                "horizontalAlignment": "center", # Alignement par défaut
+                "initialTopPercentage": 25,
+                "initialLeftPercentage": 50,
+                "initialWidthPercentage": 30,
+                "horizontalAlignment": "center",
                 "shadowEffect": {
                     "apply": True,
-                    "color": "#000000A0", # Ombre noire légèrement transparente
+                    "color": "#000000A0",
                     "offsetPx": 3,
                     "blurPx": 4
                 }
             }
         }
 
-# Initialisation du générateur au démarrage de l'application Flask
-try:
-    islamic_flyer_gen = IslamicFlyerGenerator(api_key_unused=None)
-    print("✅ Générateur islamique initialisé avec succès (Instance prête).")
-except Exception as e:
-    print(f"❌ ERREUR CRITIQUE lors de l'initialisation du générateur: {e}")
-    raise
+islamic_flyer_gen = IslamicFlyerGenerator(api_key_unused=None)
 
 
-# --- Fonction utilitaire pour obtenir le chemin de la police ---
-def _get_font_path(font_family):
+# --- Fonction utilitaire pour obtenir le chemin de la police (MISE À JOUR) ---
+def _get_font_path(font_family, font_weight="normal"):
     """
-    Tente de trouver le chemin d'un fichier de police basé sur le nom de la famille.
+    Tente de trouver le chemin d'un fichier de police basé sur le nom de la famille et le poids.
     Recherche d'abord dans le dossier 'fonts' du projet.
     """
     base_dir = os.path.dirname(__file__)
     project_fonts_dir = os.path.join(base_dir, 'fonts')
 
-    # Mappage des noms de polices CSS vers les noms de fichiers .ttf (assurez-vous que ces fichiers existent dans 'fonts/')
+    # Mappage des noms de polices CSS vers les noms de fichiers .ttf / .otf réels.
+    # CES NOMS DOIVENT CORRESPONDRE EXACTEMENT AUX FICHIERS DANS VOTRE DOSSIER backend/fonts/
+    # Exemples de noms de fichiers courants pour les polices populaires:
+    # Arial.ttf, Arial-Bold.ttf
+    # Lato-Regular.ttf, Lato-Light.ttf, Lato-Bold.ttf, Lato-Black.ttf
+    # Montserrat-Regular.ttf, Montserrat-Light.ttf, Montserrat-Medium.ttf, Montserrat-SemiBold.ttf, Montserrat-Bold.ttf, Montserrat-ExtraBold.ttf, Montserrat-Black.ttf
+    # Roboto-Regular.ttf, Roboto-Light.ttf, Roboto-Medium.ttf, Roboto-Bold.ttf, Roboto-Black.ttf
+    # TimesNewRoman.ttf, TimesNewRoman-Bold.ttf (ou Times New Roman.ttf, Times New Roman Bold.ttf)
+    # Etc.
     font_files_map = {
-        "Arial": "arial.ttf",
-        "Verdana": "verdana.ttf",
-        "Helvetica": "arial.ttf", # Helvetica est souvent mappée à Arial sur Windows/Linux par défaut
-        "Georgia": "georgia.ttf",
-        "Times New Roman": "times.ttf",
-        "Courier New": "cour.ttf",
-        "Impact": "impact.ttf",
-        "Trebuchet MS": "trebuc.ttf",
-        "Open Sans": "OpenSans-Regular.ttf", # Exemple de Google Font
-        "Roboto": "Roboto-Regular.ttf",      # Exemple de Google Font
-        "Playfair Display": "PlayfairDisplay-Regular.ttf", # Exemple de Google Font
-        "Lato": "Lato-Regular.ttf",
-        "Merriweather": "Merriweather-Regular.ttf",
-        # Ajoutez d'autres polices si nécessaire, en respectant les noms de fichiers exacts.
-        # Pour les variantes (bold, italic), vous devrez ajouter des entrées comme "Roboto Bold": "Roboto-Bold.ttf"
-        # et gérer la sélection dans le code de rendu si vous voulez supporter plus que 'normal'/'bold'.
+        "Arial": {"normal": "Arial.ttf", "bold": "Arial-Bold.ttf", "lighter": "Arial.ttf", "bolder": "Arial-Black.ttf", "400": "Arial.ttf", "700": "Arial-Bold.ttf", "900": "Arial-Black.ttf"},
+        "Georgia": {"normal": "Georgia.ttf", "bold": "Georgia-Bold.ttf", "lighter": "Georgia.ttf", "bolder": "Georgia-Bold.ttf", "400": "Georgia.ttf", "700": "Georgia-Bold.ttf"}, 
+        "Helvetica": {"normal": "Helvetica.ttf", "bold": "Helvetica-Bold.ttf", "lighter": "Helvetica.ttf", "bolder": "Helvetica-Black.ttf", "400": "Helvetica.ttf", "700": "Helvetica-Bold.ttf", "900": "Helvetica-Black.ttf"}, 
+        "Impact": {"normal": "Impact.ttf", "bold": "Impact.ttf", "lighter": "Impact.ttf", "bolder": "Impact.ttf", "400": "Impact.ttf", "700": "Impact.ttf"}, 
+        "Lato": {"normal": "Lato-Regular.ttf", "lighter": "Lato-Light.ttf", "bold": "Lato-Bold.ttf", "bolder": "Lato-Black.ttf", "100": "Lato-Thin.ttf", "200": "Lato-ExtraLight.ttf", "300": "Lato-Light.ttf", "400": "Lato-Regular.ttf", "500": "Lato-Medium.ttf", "600": "Lato-SemiBold.ttf", "700": "Lato-Bold.ttf", "800": "Lato-ExtraBold.ttf", "900": "Lato-Black.ttf"},
+        "Merriweather": {"normal": "Merriweather-Regular.ttf", "lighter": "Merriweather-Light.ttf", "bold": "Merriweather-Bold.ttf", "bolder": "Merriweather-Black.ttf", "300": "Merriweather-Light.ttf", "400": "Merriweather-Regular.ttf", "700": "Merriweather-Bold.ttf", "900": "Merriweather-Black.ttf"},
+        "Roboto Mono": {"normal": "RobotoMono-Regular.ttf", "bold": "RobotoMono-Bold.ttf", "lighter": "RobotoMono-Light.ttf", "bolder": "RobotoMono-Black.ttf", "300": "RobotoMono-Light.ttf", "400": "RobotoMono-Regular.ttf", "700": "RobotoMono-Bold.ttf", "900": "RobotoMono-Black.ttf"},
+        "Montserrat": {"normal": "Montserrat-Regular.ttf", "lighter": "Montserrat-Light.ttf", "bold": "Montserrat-Bold.ttf", "bolder": "Montserrat-Black.ttf", "100": "Montserrat-Thin.ttf", "200": "Montserrat-ExtraLight.ttf", "300": "Montserrat-Light.ttf", "400": "Montserrat-Regular.ttf", "500": "Montserrat-Medium.ttf", "600": "Montserrat-SemiBold.ttf", "700": "Montserrat-Bold.ttf", "800": "Montserrat-ExtraBold.ttf", "900": "Montserrat-Black.ttf"},
+        "Roboto": {"normal": "Roboto-Regular.ttf", "lighter": "Roboto-Light.ttf", "bold": "Roboto-Bold.ttf", "bolder": "Roboto-Black.ttf", "100": "Roboto-Thin.ttf", "300": "Roboto-Light.ttf", "400": "Roboto-Regular.ttf", "500": "Roboto-Medium.ttf", "700": "Roboto-Bold.ttf", "900": "Roboto-Black.ttf"},
+        "Times New Roman": {"normal": "TimesNewRoman.ttf", "bold": "TimesNewRoman-Bold.ttf", "lighter": "TimesNewRoman.ttf", "bolder": "TimesNewRoman-Bold.ttf", "400": "TimesNewRoman.ttf", "700": "TimesNewRoman-Bold.ttf"}, 
+        "Verdana": {"normal": "Verdana.ttf", "bold": "Verdana-Bold.ttf", "lighter": "Verdana.ttf", "bolder": "Verdana-Bold.ttf", "400": "Verdana.ttf", "700": "Verdana-Bold.ttf"}, 
+        "Lora": {"normal": "Lora-Regular.ttf", "bold": "Lora-Bold.ttf", "lighter": "Lora-Light.ttf", "bolder": "Lora-SemiBold.ttf", "400": "Lora-Regular.ttf", "700": "Lora-Bold.ttf"}, 
+        "Inter": {"normal": "Inter-Regular.ttf", "bold": "Inter-Bold.ttf", "lighter": "Inter-Light.ttf", "bolder": "Inter-Black.ttf", "100": "Inter-Thin.ttf", "200": "Inter-ExtraLight.ttf", "300": "Inter-Light.ttf", "400": "Inter-Regular.ttf", "500": "Inter-Medium.ttf", "600": "Inter-SemiBold.ttf", "700": "Inter-Bold.ttf", "800": "Inter-ExtraBold.ttf", "900": "Inter-Black.ttf"},
     }
 
     clean_font_name = font_family.split(',')[0].strip()
+    requested_weight_key = str(font_weight).lower() 
 
-    # Tente de trouver la police exacte dans le mappage et le dossier du projet
+    # Tentative 1: Match exact du poids (normal, bold, lighter, bolder, ou numérique)
     if clean_font_name in font_files_map:
-        potential_path = os.path.join(project_fonts_dir, font_files_map[clean_font_name])
-        if os.path.exists(potential_path):
-            return potential_path
-    
-    # Fallback générique si la police exacte n'est pas trouvée dans le dossier projet.
-    # On peut chercher d'autres polices communes qui pourraient être là.
+        font_variants = font_files_map[clean_font_name]
+        if requested_weight_key in font_variants:
+            potential_path = os.path.join(project_fonts_dir, font_variants[requested_weight_key])
+            if os.path.exists(potential_path):
+                print(f"   INFO: Police '{clean_font_name}' (poids exact: '{font_weight}', fichier: '{font_variants[requested_weight_key]}') trouvée.")
+                return potential_path
+        
+        # Tentative 2: Fallbacks pour les poids non-numériques si l'exact n'est pas trouvé
+        if requested_weight_key == 'lighter':
+            for key_to_try in ['light', 'normal', '300', '400']:
+                if key_to_try in font_variants:
+                    potential_path = os.path.join(project_fonts_dir, font_variants[key_to_try])
+                    if os.path.exists(potential_path):
+                        print(f"   AVERTISSEMENT: Poids '{font_weight}' non trouvé pour '{clean_font_name}'. Utilisation de la version '{key_to_try}' de secours: {potential_path}")
+                        return potential_path
+        elif requested_weight_key == 'bolder':
+            for key_to_try in ['black', 'extrabold', 'bold', '900', '800', '700']:
+                if key_to_try in font_variants:
+                    potential_path = os.path.join(project_fonts_dir, font_variants[key_to_try])
+                    if os.path.exists(potential_path):
+                        print(f"   AVERTISSEMENT: Poids '{font_weight}' non trouvé pour '{clean_font_name}'. Utilisation de la version '{key_to_try}' de secours: {potential_path}")
+                        return potential_path
+        elif requested_weight_key == 'normal' and 'normal' in font_variants: # Fallback pour 'normal' si pas trouvé
+            potential_path = os.path.join(project_fonts_dir, font_variants['normal'])
+            if os.path.exists(potential_path):
+                print(f"   AVERTISSEMENT: Poids '{font_weight}' non trouvé pour '{clean_font_name}'. Utilisation de la version 'normal' de secours: {potential_path}")
+                return potential_path
+        elif requested_weight_key == 'bold' and 'bold' in font_variants: # Fallback pour 'bold' si pas trouvé
+            potential_path = os.path.join(project_fonts_dir, font_variants['bold'])
+            if os.path.exists(potential_path):
+                print(f"   AVERTISSEMENT: Poids '{font_weight}' non trouvé pour '{clean_font_name}'. Utilisation de la version 'bold' de secours: {potential_path}")
+                return potential_path
+            
+    # Tentative 3: Fallbacks génériques si la police n'est pas trouvée du tout dans le mappage
+    # ou si aucun poids spécifique n'a pu être résolu.
+    # Ces noms doivent correspondre aux fichiers du dossier fonts/ que vous DEVEZ avoir.
     generic_fallbacks = [
-        "arial.ttf", "OpenSans-Regular.ttf", "Roboto-Regular.ttf",
-        "times.ttf", "georgia.ttf",
-        "cour.ttf" # For monospace
+        "Arial.ttf", "Roboto-Regular.ttf", "TimesNewRoman.ttf",
+        "Georgia.ttf", "Verdana.ttf", "Impact.ttf",
+        "Lato-Regular.ttf", "Merriweather-Regular.ttf", "Montserrat-Regular.ttf",
+        "RobotoMono-Regular.ttf", "Helvetica.ttf", "Lora-Regular.ttf", "Inter-Regular.ttf"
     ]
     for filename in generic_fallbacks:
         potential_path = os.path.join(project_fonts_dir, filename)
         if os.path.exists(potential_path):
-            print(f"   AVERTISSEMENT: Police '{font_family}' non trouvée. Utilisation de la police de fallback du projet: {potential_path}")
+            print(f"   AVERTISSEMENT: Aucune police spécifique pour '{font_family}' (poids: {font_weight}) trouvée. Utilisation de la police de fallback du projet: {potential_path}")
             return potential_path
 
-    print(f"   AVERTISSEMENT: Aucune police compatible pour '{font_family}' trouvée dans le dossier 'fonts/'. Utilisation de la police par défaut (PIL).")
+    print(f"   ERREUR: Aucune police compatible pour '{font_family}' (poids: {font_weight}) trouvée dans le dossier 'fonts/'.")
+    if os.path.exists(project_fonts_dir):
+        print(f"   Contenu du dossier fonts/: {os.listdir(project_fonts_dir)}")
+    else:
+        print(f"   Le dossier 'fonts/' n'existe pas ou est inaccessible: {project_fonts_dir}. Veuillez créer ce dossier et y placer les fichiers .ttf/.otf.")
+        
     return None # Cela fera que PIL utilise sa police bitmap par défaut
 
 def _text_wrap(text, font, max_width):
     """
     Découpe le texte en lignes pour qu'il tienne dans une largeur maximale.
+    Utilise font.getlength() pour une mesure plus précise.
     """
     lines = []
     if not text:
         return lines
 
     words = text.split(' ')
-    current_line = []
+    current_line_words = []
+    
+    # Heuristique pour la largeur d'un caractère si getlength échoue
+    char_width_approx = font.size * 0.6 
+
     for word in words:
-        test_line = ' '.join(current_line + [word])
+        # Check if the current word alone is longer than max_width
+        try:
+            word_width = font.getlength(word)
+            if not isinstance(word_width, (int, float)) or word_width <= 0:
+                raise ValueError("getlength for word returned invalid value")
+        except Exception:
+            word_width = len(word) * char_width_approx # Fallback if getlength fails
+
+        if word_width > max_width:
+            # If a single word is too long, we append the current_line_words
+            # then add this excessively long word on its own line.
+            # PIL does not automatically hyphenate, so this is the best we can do.
+            if current_line_words:
+                lines.append(' '.join(current_line_words))
+                current_line_words = []
+            lines.append(word) # Add the too-long word on its own line
+            continue # Move to the next word
+
+        # Try to add the word to the current line
+        test_line_words = current_line_words + [word]
+        test_line = ' '.join(test_line_words)
 
         try:
-            # getbbox() renvoie (left, top, right, bottom)
-            # La largeur est (right - left)
-            bbox = font.getbbox(test_line)
-            text_width = bbox[2] - bbox[0]
-        except Exception as e:
-            # Fallback si getbbox échoue (peut arriver avec certaines versions/polices)
-            print(f"   AVERTISSEMENT: Échec de font.getbbox pour '{test_line[:30]}...': {e}. Estimant la largeur.")
-            text_width = len(test_line) * font.size * 0.6 # Estimation simple
+            test_line_width = font.getlength(test_line)
+            if not isinstance(test_line_width, (int, float)) or test_line_width <= 0:
+                raise ValueError("getlength for test_line returned invalid value")
+        except Exception:
+            test_line_width = len(test_line) * char_width_approx # Fallback if getlength fails
 
-        if text_width <= max_width:
-            current_line.append(word)
+        if test_line_width <= max_width:
+            current_line_words.append(word)
         else:
-            if current_line: # Si la ligne actuelle n'est pas vide, l'ajouter
-                lines.append(' '.join(current_line))
-            
-            # Gérer le cas où un seul mot est plus large que la ligne
-            try:
-                word_bbox = font.getbbox(word)
-                word_width = word_bbox[2] - word_bbox[0]
-            except Exception:
-                word_width = len(word) * font.size * 0.6 # Estimation
+            # Current line plus this word exceeds max_width.
+            # Append the current line (without this word) and start a new line with this word.
+            if current_line_words: # Only append if there's content
+                lines.append(' '.join(current_line_words))
+            current_line_words = [word] # Start new line with the current word
 
-            if word_width > max_width:
-                # Si le mot seul est trop large, il sera coupé par le conteneur,
-                # mais on l'ajoute comme sa propre ligne pour ne pas bloquer.
-                lines.append(word)
-                current_line = []
-            else:
-                current_line = [word] # Démarrer une nouvelle ligne avec ce mot
-
-    if current_line:
-        lines.append(' '.join(current_line))
+    # Add any remaining words in current_line_words
+    if current_line_words:
+        lines.append(' '.join(current_line_words))
+        
     return lines
 
 
@@ -722,7 +748,6 @@ def generate_islamic_flyer_main_route():
             return jsonify({'error': error_msg}), 400
 
         try:
-            # Tente d'ouvrir l'image pour validation (PIL la ferme automatiquement après usage)
             Image.open(BytesIO(logo_image_bytes))
             print(f"   ✅ Logo valide (test PIL).")
         except Exception as e:
@@ -741,7 +766,6 @@ def generate_islamic_flyer_main_route():
 
         print("   ✅ Phase 1 terminée: Données valides.")
 
-        # --- ÉTAPE 1: ANALYSE DU LOGO (Couleurs, Style général, Suggestions de fond) ---
         print("\n🎨 Phase 2: Analyse complète du logo avec GPT-4o.")
         try:
             logo_analysis = islamic_flyer_gen.extract_logo_colors_and_styles_with_gpt4o(logo_image_bytes)
@@ -751,7 +775,6 @@ def generate_islamic_flyer_main_route():
             print(f"   ❌ {error_msg}")
             return jsonify({'error': error_msg}), 500
 
-        # --- ÉTAPE 2: GÉNÉRATION DE L'ARRIÈRE-PLAN ---
         print("\n🖼️ Phase 3: Génération de l'arrière-plan islamique avec Imagen.")
         try:
             flyer_background_image_url = islamic_flyer_gen.generate_islamic_background(
@@ -765,11 +788,10 @@ def generate_islamic_flyer_main_route():
             print(f"   ❌ {error_msg}")
             return jsonify({'error': error_msg}), 500
 
-        # --- ÉTAPE 3: SUGGESTION DE STYLES ET POSITIONS DE TEXTE ET LOGO (Analyse visuelle de l'arrière-plan par GPT-4o) ---
         print("\n📝 Phase 4: Suggestion de styles de texte et position du logo (analyse visuelle par GPT-4o).")
         try:
             text_style_suggestions = islamic_flyer_gen.get_ai_design_suggestions(
-                flyer_background_image_url, # C'est ici que l'image générée est passée à GPT-4o
+                flyer_background_image_url,
                 logo_analysis,
                 content_data
             )
@@ -790,8 +812,8 @@ def generate_islamic_flyer_main_route():
             'success': True,
             'flyer_background_url': flyer_background_image_url,
             'text_style_suggestions': text_style_suggestions,
-            'extracted_colors': logo_analysis.get('extracted_colors', []), # Envoyer les couleurs extraites pour info client
-            'logo_analysis': logo_analysis, # Envoyer l'analyse complète du logo
+            'extracted_colors': logo_analysis.get('extracted_colors', []),
+            'logo_analysis': logo_analysis,
             'message': 'Flyer islamique généré avec succès avec analyse complète du logo.'
         })
 
@@ -808,17 +830,18 @@ def generate_islamic_flyer_main_route():
             'error_type': type(e).__name__
         }), 500
 
-# --- ROUTE POUR LA GÉNÉRATION FINALE DU FLYER CÔTÉ SERVEUR ---
+
 @app.route('/api/generate-final-flyer', methods=['POST'])
 def generate_final_flyer():
     print("\n" + "="*80)
     print("✨ DÉBUT DE LA GÉNÉRATION FINALE DE FLYER ISLAMIQUE (Côté Serveur)")
     print("="*80)
+    
     try:
         data = request.json
         background_url = data.get('background_url')
         text_components = data.get('text_components', [])
-        flyer_dims = data.get('flyer_dimensions', {'width': 360, 'height': 640})
+        flyer_dims = data.get('flyer_dimensions', {'width': 1080, 'height': 1920})
 
         if not background_url:
             print("   ❌ URL de l'image de fond manquante.")
@@ -827,9 +850,8 @@ def generate_final_flyer():
         print(f"   📥 Téléchargement de l'image de fond depuis: {background_url}")
         try:
             response = requests.get(background_url, stream=True, timeout=30)
-            response.raise_for_status() # Lève une erreur pour les codes d'état HTTP non 2xx
+            response.raise_for_status()
             background_image_bytes = BytesIO(response.content)
-            # Charger l'image de fond et s'assurer qu'elle est en mode RGBA
             background = Image.open(background_image_bytes).convert("RGBA")
         except requests.exceptions.RequestException as e:
             print(f"   ❌ Erreur de téléchargement de l'arrière-plan: {e}")
@@ -843,12 +865,9 @@ def generate_final_flyer():
             print(f"   🔄 Redimensionnement de {background.size} à {flyer_dims['width']}x{flyer_dims['height']}.")
             background = background.resize((flyer_dims['width'], flyer_dims['height']), Image.Resampling.LANCZOS)
 
-        # Créez une image de sortie finale avec un fond transparent (pour les PNG) ou blanc
-        # Coller l'arrière-plan sur une nouvelle image pour s'assurer d'avoir un canevas propre.
-        final_output_image = Image.new("RGBA", (flyer_dims['width'], flyer_dims['height']), (0, 0, 0, 0)) # Fond transparent
-        final_output_image.paste(background, (0, 0), background) # Paste background, respecting its alpha if any
+        final_output_image = Image.new("RGBA", (flyer_dims['width'], flyer_dims['height']), (0, 0, 0, 0))
+        final_output_image.paste(background, (0, 0), background)
 
-        # Dessiner sur cette image finale
         draw = ImageDraw.Draw(final_output_image)
 
         print(f"   📝 Traitement de {len(text_components)} composants...")
@@ -862,12 +881,10 @@ def generate_final_flyer():
 
             print(f"   🔍 Composant {comp_idx + 1}: {comp_id} ({'image' if is_image else 'texte'}). Contenu: '{content[:50]}...'")
 
-            # Traitement spécial pour les logos (images)
             if is_image and comp_id == 'logo':
                 print(f"   🖼️ Traitement du logo '{comp_id}'...")
 
                 try:
-                    # Télécharger le logo depuis l'URL data ou URL externe
                     if image_url.startswith('data:image/'):
                         header, encoded = image_url.split(',', 1)
                         logo_bytes = base64.b64decode(encoded)
@@ -876,158 +893,146 @@ def generate_final_flyer():
                         logo_response.raise_for_status()
                         logo_bytes = logo_response.content
 
-                    logo_image = Image.open(BytesIO(logo_bytes)).convert("RGBA") # S'assure que le logo est RGBA
+                    logo_image = Image.open(BytesIO(logo_bytes)).convert("RGBA")
 
-                    # Récupérer les styles de positionnement
                     logo_x_px = comp.get('x', 0)
                     logo_y_px = comp.get('y', 0)
-                    width_percent = int(comp.get('width', '30%').replace('%', ''))
-                    shadow_effect = style.get('shadowEffect', {"apply": False})
+                    logo_width_px = comp.get('width_px', 0)
 
-                    # Calculer les dimensions du logo en pixels
-                    logo_width_px = int((width_percent / 100) * flyer_dims['width'])
-
-                    # Redimensionner le logo en gardant les proportions
-                    if logo_image.width > 0 and logo_image.height > 0: # Éviter division par zéro
+                    if logo_image.width > 0 and logo_image.height > 0:
                         logo_ratio = logo_image.width / logo_image.height
                         logo_height_px = int(logo_width_px / logo_ratio)
                     else:
-                        logo_height_px = logo_width_px # Fallback si image est invalide
-                        print(f"   ⚠️ Dimensions du logo invalides, utilisant hauteur = largeur pour le redimensionnement.")
+                        logo_height_px = logo_width_px
+                        print(f"   ⚠️ Dimensions du logo invalides ou zéro, utilisant hauteur = largeur pour le redimensionnement.")
 
-
-                    # Redimensionner le logo
                     logo_image = logo_image.resize((logo_width_px, logo_height_px), Image.Resampling.LANCZOS)
 
-                    # Appliquer l'ombre si suggéré
+                    shadow_effect = style.get('shadowEffect', {"apply": False})
                     if shadow_effect.get('apply', False):
-                        shadow_color_hex = shadow_effect.get('color', '#000000A0')
+                        shadow_color_val = shadow_effect.get('color', '#000000A0')
                         shadow_offset_px = shadow_effect.get('offsetPx', 3)
                         shadow_blur_px = shadow_effect.get('blurPx', 4)
 
-                        def hex_to_rgba_tuple(hex_color):
-                            hex_color = hex_color.lstrip('#')
-                            if len(hex_color) == 6: # RRGGBB
-                                return tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4)) + (255,)
-                            elif len(hex_color) == 8: # RRGGBBAA
-                                return tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4, 6))
-                            return (0, 0, 0, 0) # Fallback transparent
+                        shadow_color_rgba = parse_color_string_to_rgba(shadow_color_val, default_alpha=160)
 
-                        shadow_color_rgba = hex_to_rgba_tuple(shadow_color_hex)
-
-                        # Créer une image d'ombre de la même taille que le logo (ou légèrement plus grande pour le blur)
-                        # Remplir avec la couleur d'ombre et l'alpha du logo
-                        # L'approche avec ImageDraw.Draw().ellipse/rectangle() pour le masque d'ombre est plus flexible pour des formes complexes
-                        # Pour un logo générique, on peut utiliser un masque basé sur l'alpha du logo lui-même.
-                        logo_alpha_mask = logo_image.split()[3] # Obtenir le canal alpha du logo
+                        logo_alpha_mask = logo_image.split()[3]
                         shadow_base = Image.new('RGBA', logo_image.size, shadow_color_rgba)
-                        shadow_base.putalpha(logo_alpha_mask) # Appliquer le masque alpha du logo à l'image d'ombre
+                        shadow_base.putalpha(logo_alpha_mask)
 
-                        # Appliquer le flou sur l'ombre
                         shadow_image_blurred = shadow_base.filter(ImageFilter.GaussianBlur(shadow_blur_px))
 
-                        # Calculer la position de l'ombre
                         shadow_x = logo_x_px + shadow_offset_px
                         shadow_y = logo_y_px + shadow_offset_px
 
-                        # Coller l'ombre sur l'image finale
+                        # Vérifier que l'ombre ne dépasse pas le cadre du flyer
                         if shadow_x < flyer_dims['width'] and shadow_y < flyer_dims['height']:
-                            final_output_image.paste(shadow_image_blurred, (shadow_x, shadow_y), shadow_image_blurred)
+                            shadow_layer = Image.new('RGBA', final_output_image.size, (0,0,0,0))
+                            shadow_layer.paste(shadow_image_blurred, (shadow_x, shadow_y), shadow_image_blurred)
+                            final_output_image = Image.alpha_composite(final_output_image, shadow_layer)
+                        else:
+                            print(f"   ⚠️ Ombre du logo hors cadre ({shadow_x},{shadow_y}), ne sera pas dessinée.")
 
-
-                    # Coller le logo sur l'image finale (par-dessus l'ombre)
+                    # Placer l'image du logo APRÈS son ombre
                     if logo_x_px < flyer_dims['width'] and logo_y_px < flyer_dims['height']:
-                        final_output_image.paste(logo_image, (logo_x_px, logo_y_px), logo_image)
+                        logo_layer = Image.new('RGBA', final_output_image.size, (0,0,0,0))
+                        logo_layer.paste(logo_image, (logo_x_px, logo_y_px), logo_image)
+                        final_output_image = Image.alpha_composite(final_output_image, logo_layer)
+                    else:
+                         print(f"   ⚠️ Logo hors cadre ({logo_x_px},{logo_y_px}), ne sera pas dessiné.")
 
                     print(f"   ✅ Logo '{comp_id}' placé à ({logo_x_px}, {logo_y_px}) avec taille {logo_width_px}x{logo_height_px}. Ombre appliquée: {shadow_effect.get('apply', False)}")
 
                 except Exception as e:
                     print(f"   ❌ Erreur lors du placement du logo '{comp_id}': {e}")
                     traceback.print_exc()
-                    continue # Passe au composant suivant
+                    continue
 
-                continue  # Passe au composant suivant après avoir traité le logo
+                continue
 
-            # Traitement des composants texte
             if not content.strip():
                 print(f"   ⚠️ Contenu vide pour le composant texte '{comp_id}', passage au suivant.")
                 continue
 
-            # Récupérer les styles et positions
             x_px = comp.get('x', 0)
             y_px = comp.get('y', 0)
+            max_text_width_px = comp.get('width_px', flyer_dims['width'] * 0.9) # Assurer une valeur par défaut
+            
+            print(f"   ⚙️ Pour '{comp_id}': Conteneur à ({x_px}, {y_px}), Largeur max: {max_text_width_px}px")
 
-            width_percent = int(comp.get('width', '90%').replace('%', ''))
-            max_text_width_px = (width_percent / 100) * flyer_dims['width']
-            min_height_px = comp.get('minHeightPx', 0)
 
             font_family = style.get('fontFamily', 'Arial, sans-serif').split(',')[0].strip()
             font_size_px = int(style.get('fontSizePx', 24))
             color_hex = style.get('color', '#000000')
             text_align = style.get('textAlign', 'center')
             line_height_em = float(style.get('lineHeightEm', 1.4))
+            font_weight = style.get('fontWeight', 'normal')
 
-            # Convertir la couleur HEX en RGB/RGBA pour PIL
-            try:
-                if not color_hex.startswith('#'):
-                    color_hex = '#000000' # Fallback si format invalide
-                text_color_rgb = tuple(int(color_hex.lstrip('#')[i:i+2], 16) for i in (0, 2, 4))
-            except ValueError:
-                text_color_rgb = (0, 0, 0) # Noir par défaut si erreur de conversion
-            text_color_rgba = (*text_color_rgb, 255) # Ajoute l'alpha 255 (opaque)
+            text_color_rgba = parse_color_string_to_rgba(color_hex, default_alpha=255)
 
-            # Charger la police
-            font_path = _get_font_path(font_family)
+            font_path = _get_font_path(font_family, font_weight)
             try:
                 if font_path and os.path.exists(font_path):
                     font = ImageFont.truetype(font_path, font_size_px)
+                    print(f"   ✅ Police chargée: {font_path} (taille: {font_size_px}, poids: '{font_weight}').")
                 else:
-                    font = ImageFont.load_default() # Police bitmap par défaut de PIL
-                    print(f"   ⚠️ Police de fallback (PIL par défaut) utilisée pour '{comp_id}'.")
+                    font = ImageFont.load_default()
+                    print(f"   ⚠️ Police de fallback (PIL par défaut) utilisée pour '{comp_id}' (font: {font_family}, weight: {font_weight}).")
             except (IOError, OSError) as e:
-                print(f"   ⚠️ Erreur de chargement police '{font_family}': {e}. Utilisation de la police par défaut (PIL).")
+                print(f"   ⚠️ Erreur de chargement police '{font_family}' (poids: {font_weight}): {e}. Utilisation de la police par défaut (PIL).")
+                font = ImageFont.load_default()
+            except Exception as e:
+                print(f"   ⚠️ Erreur inattendue de chargement truetype pour '{font_family}' (poids: {font_weight}): {e}. Utilisation de la police par défaut (PIL).")
                 font = ImageFont.load_default()
 
-            # Déterminer la couleur de l'ombre du texte (contraste inversé)
-            text_luminance = (text_color_rgb[0] * 0.299 + text_color_rgb[1] * 0.587 + text_color_rgb[2] * 0.114)
-            is_light_text = text_luminance > 128
-            shadow_color_rgba = (0, 0, 0, 180) if is_light_text else (255, 255, 255, 180) # Légèrement transparent
-            shadow_offset = max(1, int(font_size_px / 20)) # Ajuster l'offset de l'ombre
+            text_shadow_effect = style.get('shadowEffect', {"apply": False})
+            
+            if text_shadow_effect.get('apply', False):
+                shadow_color_val = text_shadow_effect.get('color', '#000000A0')
+                shadow_color_rgba = parse_color_string_to_rgba(shadow_color_val, default_alpha=180)
+                shadow_offset_x = text_shadow_effect.get('offsetPx', 2)
+                shadow_offset_y = text_shadow_effect.get('offsetPx', 2)
+            else:
+                shadow_color_rgba = (0, 0, 0, 0) # Entièrement transparent si non appliqué
+                shadow_offset_x = 0
+                shadow_offset_y = 0
 
             lines = _text_wrap(content, font, max_text_width_px)
+            print(f"   📖 '{comp_id}' - Texte wrappé en {len(lines)} lignes: {lines}")
 
             current_y_for_line = y_px
             for line_idx, line in enumerate(lines):
-                if not line.strip():
+                if not line.strip(): # Ne pas dessiner des lignes vides qui pourraient résulter du wrapping
                     continue
 
                 try:
-                    # Obtenir la boîte englobante du texte pour la ligne
-                    bbox = font.getbbox(line)
-                    line_width = bbox[2] - bbox[0] # Largeur du texte réel
-                    line_height = bbox[3] - bbox[1] # Hauteur du texte réel
+                    line_width = font.getlength(line)
+                    if not isinstance(line_width, (int, float)) or line_width < 0:
+                        raise ValueError("getlength returned invalid value for line_width")
                 except Exception as e:
-                    print(f"   AVERTISSEMENT: Échec de font.getbbox pour la ligne '{line[:20]}...': {e}. Estimant la largeur/hauteur.")
-                    line_width = len(line) * font_size_px * 0.6 # Estimation
-                    line_height = font_size_px # Estimation
+                    print(f"   AVERTISSEMENT: Échec de font.getlength pour la ligne '{line[:20]}...': {e}. Estimant la largeur/hauteur.")
+                    # Fallback robuste: estimation de la largeur basée sur la taille de la police
+                    line_width = len(line) * font_size_px * 0.6
+                
+                print(f"      Ligne {line_idx}: '{line[:30]}...' (largeur: {line_width:.2f}px / max: {max_text_width_px}px)")
 
                 line_x_final = x_px
-                # Ajuster la position X en fonction de l'alignement et de la largeur réelle de la ligne
                 if text_align == 'center':
                     line_x_final += (max_text_width_px - line_width) / 2
                 elif text_align == 'right':
                     line_x_final += (max_text_width_px - line_width)
 
-                line_x_final = int(max(0, line_x_final)) # S'assurer que X ne soit pas négatif
-                current_y_px_int = int(max(0, current_y_for_line)) # S'assurer que Y ne soit pas négatif
+                line_x_final = int(max(0, line_x_final))
+                current_y_px_int = int(max(0, current_y_for_line))
 
-                # Dessiner l'ombre du texte
-                draw.text(
-                    (int(line_x_final + shadow_offset), int(current_y_px_int + shadow_offset)),
-                    line,
-                    font=font,
-                    fill=shadow_color_rgba
-                )
+                # Dessiner l'ombre si appliquée et visible
+                if text_shadow_effect.get('apply', False) and shadow_color_rgba[3] > 0:
+                    draw.text(
+                        (int(line_x_final + shadow_offset_x), int(current_y_px_int + shadow_offset_y)),
+                        line,
+                        font=font,
+                        fill=shadow_color_rgba
+                    )
 
                 # Dessiner le texte principal
                 draw.text(
@@ -1037,20 +1042,24 @@ def generate_final_flyer():
                     fill=text_color_rgba
                 )
 
-                next_line_height = font_size_px * line_height_em
+                # Calculer la hauteur de la ligne suivante
+                # Utiliser les métriques de la police pour une hauteur de ligne plus précise
+                ascent, descent = font.getmetrics()
+                base_line_height = ascent + descent 
+                
+                next_line_height = base_line_height * line_height_em
                 current_y_for_line += next_line_height
 
-            print(f"   ✅ Texte '{comp_id}' traité: {len(lines)} lignes, couleur: {color_hex}, police: {font_family}.")
+            print(f"   ✅ Texte '{comp_id}' traité: {len(lines)} lignes, couleur: {color_hex}, police: {font_family} (poids: {font_weight}).")
 
-        # Amélioration finale de l'image (légère accentuation)
         final_output_image = final_output_image.filter(ImageFilter.UnsharpMask(radius=1, percent=120, threshold=3))
 
-        # Sauvegarde en PNG (gère la transparence via RGBA)
         img_io = BytesIO()
-        final_output_image.save(img_io, 'PNG', quality=100, optimize=True)
+        final_output_image.save(img_io, 'PNG', quality=95, optimize=True)
         img_io.seek(0)
 
         print("   ✅ Flyer islamique final généré avec succès !")
+        print("DEBUG: PRÊT À RETOURNER send_file")
 
         return send_file(
             img_io,
@@ -1061,6 +1070,7 @@ def generate_final_flyer():
 
     except Exception as e:
         print(f"\n❌ ERREUR LORS DE LA GÉNÉRATION FINALE:")
+        print(f"DEBUG: ERREUR GLOBALE CATCHÉE: {type(e).__name__}: {e}")
         print(f"   🔥 Erreur: {e}")
         print(f"   📋 Type: {type(e).__name__}")
         print(f"   🗂️ Traceback complet:")
@@ -1072,9 +1082,1102 @@ def generate_final_flyer():
         }), 500
 
 if __name__ == '__main__':
-    # Lance le serveur Flask en mode développement
-    # Pour un déploiement en production, utilisez un serveur WSGI comme Gunicorn ou Waitress.
     app.run(debug=True, port=5000)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# import flask
+# from flask import Flask, request, jsonify, send_file
+# from flask_cors import CORS
+# import openai
+# import replicate
+# from replicate.exceptions import ReplicateError
+# from replicate.helpers import FileOutput
+# from PIL import Image, ImageDraw, ImageFont, ImageFilter
+# import io
+# from io import BytesIO
+# import base64
+# import os
+# from dotenv import load_dotenv
+# import traceback
+# import json
+# import time
+# import requests
+# import re # Importation nécessaire pour les expressions régulières
+
+# load_dotenv()
+
+# app = Flask(__name__)
+# # CORS for development and deployment (adjust origins as needed for production)
+# CORS(app, resources={r"/api/*": {"origins": ["http://localhost:3000", "https://your-frontend-domain.com"]}})
+
+
+# # --- CONFIGURATION ---
+# # Assurez-vous que ces variables d'environnement sont définies
+# OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+# REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN")
+
+# if not OPENAI_API_KEY:
+#     print("AVERTISSEMENT: OPENAI_API_KEY n'est pas défini. Les appels directs à l'API OpenAI pourraient échouer.")
+# if not REPLICATE_API_TOKEN:
+#     raise ValueError("ERREUR: La variable d'environnement REPLICATE_API_TOKEN n'est pas définie.")
+
+# # Replicate utilise REPLICATE_API_TOKEN de l'environnement, pas besoin de le définir ici si déjà en env
+# os.environ["REPLICATE_API_TOKEN"] = REPLICATE_API_TOKEN
+# print("✅ Replicate configuré.")
+
+# # --- PARAMÈTRE GLOBAL DE TIMEOUT ET RETRY ---
+# REPLICATE_TIMEOUT = 600 # secondes (10 minutes) pour les opérations longues comme Imagen
+
+# # Paramètres pour la logique de réessai
+# MAX_RETRIES = 5
+# INITIAL_RETRY_DELAY_SECONDS = 2
+
+# class IslamicFlyerGenerator:
+#     def __init__(self, api_key_unused):
+#         try:
+#             print("✅ IslamicFlyerGenerator initialisé.")
+#         except Exception as e:
+#             print(f"❌ Erreur initialisation IslamicFlyerGenerator: {e}")
+#             raise
+
+#     def _replicate_run_with_retries(self, model_name, input_data, timeout, max_retries=MAX_RETRIES, initial_delay=INITIAL_RETRY_DELAY_SECONDS):
+#         current_delay = initial_delay
+#         for attempt in range(max_retries):
+#             try:
+#                 print(f"   (Tentative {attempt + 1}/{max_retries}) Appel à Replicate modèle '{model_name}'...")
+#                 output = replicate.run(
+#                     model_name,
+#                     input=input_data,
+#                     timeout=timeout
+#                 )
+#                 return output
+#             except ReplicateError as e:
+#                 if e.status == 429:
+#                     print(f"   ⚠️ Replicate a renvoyé 429 (trop de requêtes). Réessai dans {current_delay:.1f}s...")
+#                     time.sleep(current_delay)
+#                     current_delay *= 2 # Backoff exponentiel
+#                     if current_delay > 60: # Cap à 60 secondes
+#                         current_delay = 60
+#                 else:
+#                     print(f"   ❌ Erreur Replicate inattendue (non 429): {e}")
+#                     raise
+#             except Exception as e:
+#                 print(f"   ❌ Erreur générale lors de l'appel Replicate (tentative {attempt + 1}): {e}")
+#                 time.sleep(current_delay)
+#                 current_delay *= 2
+#                 if current_delay > 60:
+#                     current_delay = 60
+
+#         raise ReplicateError(f"Échec de l'appel au modèle '{model_name}' après {max_retries} tentatives.")
+
+#     def extract_logo_colors_and_styles_with_gpt4o(self, logo_image_bytes):
+#         """
+#         Extrait les couleurs dominantes du logo et fournit une analyse de style générale
+#         avec GPT-4o, incluant des suggestions pour les couleurs d'arrière-plan Imagen.
+#         """
+#         print("🎨 Extraction des couleurs et styles du logo avec GPT-4o...")
+
+#         try:
+#             # Convertir l'image en base64 pour GPT-4o
+#             logo_base64 = base64.b64encode(logo_image_bytes).decode('utf-8')
+#             logo_data_url = f"data:image/png;base64,{logo_base64}"
+
+#             prompt = """
+#             Analyze this organization logo image and provide:
+
+#             1.  **COLOR EXTRACTION**: Extract the 5-8 most dominant and visually significant HEX colors from this logo. Focus on:
+#                 -   Primary brand colors that define the organization's identity.
+#                 -   Secondary colors that complement the design.
+#                 -   Avoid pure black (#000000) or pure white (#FFFFFF) unless they are clearly intentional brand colors.
+#                 -   Prefer rich, saturated colors that work well for Islamic-themed designs.
+#                 -   Include both lighter and darker variations for design flexibility.
+
+#             2.  **LOGO DOMINANT COLOR**: Identify the single most dominant color from the extracted list (as HEX).
+
+#             3.  **READABLE TEXT COLORS**: Suggest 2-3 HEX colors from the extracted logo palette that would provide good contrast and readability for text placed on a flyer, especially considering potential light or dark backgrounds.
+
+#             4.  **IMAGEN COLOR DESCRIPTIONS**: For the colors identified (both extracted and suggested Islamic palette), provide **natural language descriptions** (e.g., "deep forest green", "vibrant emerald", "warm gold", "sky blue", "subtle beige"). These will be used to instruct an image generation AI about colors, *without using HEX codes*. These descriptions should be short and evocative.
+
+#             5.  **ISLAMIC PALETTE SUGGESTIONS**: Beyond the logo colors, suggest 2-3 additional HEX colors that are culturally compatible with Islamic design (e.g., specific greens, golds, blues, browns) and would harmonize with the logo's palette.
+
+#             6.  **DESIGN ANALYSIS**: Analyze the logo's visual characteristics:
+#                 -   Overall style (modern, traditional, elegant, bold, etc.)
+#                 -   Typography style if text is present
+#                 -   Visual weight and balance
+#                 -   Cultural appropriateness for Islamic events.
+
+#             7.  **BACKGROUND COLOR SUGGESTIONS (for Imagen/AI Image Generation)**: Based on the logo's colors, style, and general Islamic aesthetics, suggest specific HEX codes for an Islamic flyer's *generated background image*. These should be harmonious with the logo but suitable for a decorative background. Suggest a dominant background color and 1-2 complementary accent colors for gradients or subtle patterns *within the generated image*.
+
+#             Provide your response in this exact JSON format. DO NOT include any other text, markdown, or explanation outside the JSON. Ensure all color values are valid HEX codes (e.g., "#RRGGBB").
+
+#             {
+#                 "extracted_colors": ["#RRGGBB", "#RRGGBB", "#RRGGBB", "#RRGGBB", "#RRGGBB"],
+#                 "logo_dominant_color": "#RRGGBB",
+#                 "readable_text_colors": ["#RRGGBB", "#RRGGBB"],
+#                 "imagen_color_descriptions": {
+#                     "dominant_bg": "description",
+#                     "complementary_bg_accents": ["description1", "description2"],
+#                     "extracted_logo_colors": ["description1", "description2", "description3"]
+#                 },
+#                 "islamic_palette_suggestions": ["#RRGGBB", "#RRGGBB", "#RRGGBB"],
+#                 "color_analysis": {
+#                     "primary_color": "#RRGGBB",
+#                     "secondary_color": "#RRGGBB",
+#                     "accent_color": "#RRGGBB"
+#                 },
+#                 "design_recommendations": {
+#                     "headline_colors": ["#RRGGBB", "#RRGGBB"],
+#                     "body_text_colors": ["#RRGGBB", "#RRGGBB"],
+#                     "islamic_compatible_colors": ["#RRGGBB", "#RRGGBB", "#RRGGBB"]
+#                 },
+#                 "logo_style_analysis": {
+#                     "style_type": "modern/traditional/elegant/bold",
+#                     "visual_weight": "light/medium/heavy",
+#                     "recommended_text_style": "serif/sans-serif/decorative"
+#                 },
+#                 "ai_suggested_background_colors": {
+#                     "dominant_background_color": "#RRGGBB",
+#                     "complementary_background_accents": ["#RRGGBB", "#RRGGBB"]
+#                 }
+#             }
+
+#             Focus on extracting colors that will create beautiful, professional Islamic-themed flyers.
+#             """
+
+#             print("   🤖 Envoi à GPT-4o pour analyse du logo...")
+#             output = self._replicate_run_with_retries(
+#                 "openai/gpt-4o",
+#                 input_data={
+#                     "prompt": prompt,
+#                     "image_input": [logo_data_url],
+#                     "max_completion_tokens": 1000,
+#                     "temperature": 0.3
+#                 },
+#                 timeout=REPLICATE_TIMEOUT
+#             )
+
+#             response_str = "".join(output)
+#             print(f"   ✅ Réponse GPT-4o reçue: {len(response_str)} caractères")
+
+#             try:
+#                 # Tente de nettoyer la réponse si elle contient du markdown JSON
+#                 if response_str.strip().startswith("```json"):
+#                     response_str = response_str.strip("```json\n").strip("```")
+
+#                 analysis = json.loads(response_str)
+
+#                 # Validation basique des données
+#                 if not isinstance(analysis, dict) or 'extracted_colors' not in analysis:
+#                     raise ValueError("Format de réponse invalide ou données manquantes.")
+
+#                 # S'assurer que imagen_color_descriptions existe ou ajouter un défaut
+#                 if 'imagen_color_descriptions' not in analysis:
+#                     print("   ⚠️ 'imagen_color_descriptions' manquant, ajout des valeurs par défaut.")
+#                     analysis['imagen_color_descriptions'] = self._get_default_logo_analysis()['imagen_color_descriptions']
+
+
+#                 print(f"   ✅ {len(analysis['extracted_colors'])} couleurs extraites avec GPT-4o: {analysis['extracted_colors']}")
+
+#                 return analysis
+
+#             except json.JSONDecodeError as e:
+#                 print(f"   ⚠️ Erreur de parsing JSON pour l'analyse du logo: {e}")
+#                 print(f"   Réponse GPT-4o brute qui a échoué: \n{response_str[:500]}...") # Log part of the failing response
+#                 return self._get_default_logo_analysis()
+
+#         except Exception as e:
+#             print(f"   ❌ Erreur lors de l'analyse du logo avec GPT-4o: {e}")
+#             print(f"   📋 Traceback: {traceback.format_exc()}")
+#             return self._get_default_logo_analysis()
+
+
+#     def _get_default_logo_analysis(self):
+#         """Analyse par défaut si GPT-4o échoue"""
+#         print("   ⚠️ Utilisation de l'analyse de logo par défaut.")
+#         return {
+#             "extracted_colors": ["#1B4332", "#2D6A4F", "#40916C", "#D4AF37", "#8B4513"],
+#             "logo_dominant_color": "#2D6A4F",
+#             "readable_text_colors": ["#D4AF37", "#40916C"],
+#             "imagen_color_descriptions": { # Default descriptions for Imagen
+#                 "dominant_bg": "deep dark blue",
+#                 "complementary_bg_accents": ["dark forest green", "emerald green"],
+#                 "extracted_logo_colors": ["deep green", "teal green", "light green", "golden yellow", "brown"]
+#             },
+#             "islamic_palette_suggestions": ["#1B4332", "#2D6A4F", "#D4AF37"],
+#             "color_analysis": {
+#                 "primary_color": "#1B4332",
+#                 "secondary_color": "#2D6A4F",
+#                 "accent_color": "#D4AF37"
+#             },
+#             "design_recommendations": {
+#                 "headline_colors": ["#1B4332", "#D4AF37"],
+#                 "body_text_colors": ["#2D6A4F", "#40916C"],
+#                 "islamic_compatible_colors": ["#1B4332", "#2D6A4F", "#D4AF37"]
+#             },
+#             "logo_style_analysis": {
+#                 "style_type": "traditional",
+#                 "visual_weight": "medium",
+#                 "recommended_text_style": "serif"
+#             },
+#             "ai_suggested_background_colors": {
+#                 "dominant_background_color": "#0A202A",
+#                 "complementary_background_accents": ["#1B4332", "#40916C"]
+#             }
+#         }
+
+#     def generate_islamic_background(self, background_description, logo_analysis, content_data):
+#         """
+#         Génère un arrière-plan islamique avec Imagen, inspiré de l'analyse du logo.
+#         """
+#         print("🕌 [Étape 2/3] Génération de l'arrière-plan islamique inspiré du logo...")
+
+#         # --- UTILISER LES DESCRIPTIONS DE COULEURS POUR IMAGEN, PAS LES HEX BRUTS ---
+#         imagen_color_descs = logo_analysis.get('imagen_color_descriptions', self._get_default_logo_analysis()['imagen_color_descriptions'])
+#         dominant_bg_desc = imagen_color_descs['dominant_bg']
+#         complementary_bg_accents_descs = ', '.join(imagen_color_descs['complementary_bg_accents'])
+#         extracted_logo_colors_descs = ', '.join(imagen_color_descs['extracted_logo_colors'])
+
+#         # Utilisation des descriptions naturelles pour le prompt Imagen
+#         color_description_for_imagen = f"Dominant: {dominant_bg_desc}. Accents: {complementary_bg_accents_descs}. Logo colors: {extracted_logo_colors_descs}"
+
+#         # Extraire des termes spécifiques du contenu pour les interdire explicitement dans l'image
+#         # La liste est BEAUCOUP plus agressive maintenant.
+#         forbidden_content_terms = [
+#             content_data.get('headline1', ''),
+#             content_data.get('short_description', ''),
+#             content_data.get('event_info', ''),
+#             content_data.get('footer_info', ''),
+#             background_description,
+#         ]
+
+#         # Ajouter les composants alphanumériques des codes HEX (sans le #) à la liste noire
+#         all_hex_codes_flat = []
+#         for hc_list in [logo_analysis.get('extracted_colors', []),
+#                         logo_analysis.get('readable_text_colors', []),
+#                         logo_analysis.get('islamic_palette_suggestions', []),
+#                         [logo_analysis['ai_suggested_background_colors']['dominant_background_color']],
+#                         logo_analysis['ai_suggested_background_colors']['complementary_background_accents']]:
+#             for hex_code in hc_list:
+#                 if isinstance(hex_code, str):
+#                     all_hex_codes_flat.append(hex_code.lstrip('#').upper())
+
+#         # Ajouter les numéros extraits du contenu
+#         for k, v in content_data.items():
+#             numbers = re.findall(r'\d+', str(v)) # Extrait toutes les séquences de chiffres
+#             forbidden_content_terms.extend(numbers)
+
+#         # Aplatir et nettoyer la liste des termes interdits
+#         # Utiliser re.findall pour extraire uniquement les mots alphanumériques et les mettre en majuscules
+#         all_terms_processed = []
+#         for term_item in forbidden_content_terms + all_hex_codes_flat:
+#             words = re.findall(r'\b[a-zA-Z0-9]+\b', term_item) # Ne prend que les mots composés de lettres/chiffres
+#             all_terms_processed.extend([word.upper() for word in words if len(word) > 1]) # Convertir en majuscules et filtrer les mono-caractères
+
+#         forbidden_terms_str = ", ".join(sorted(list(set(all_terms_processed)))) # Unique et trié
+
+#         # --- PROMPT IMAGEN OPTIMISÉ EXTRÊMEMENT STRICT CONTRE LE TEXTE ET SYMBOLES ---
+#         imagen_prompt = f"""
+#         ABSOLUTELY NO TEXT. NO NUMBERS. NO SYMBOLS. NO WRITING. NO CALLIGRAPHY. NO BRANDING. NO LOGOS. NO WATERMARKS. NO LOREM IPSUM. NO GIBBERISH. NO CHARACTERS. NO LETTERS. NO WORDS. NO TYPOGRAPHY. NO SIGNS. NO LABELS. THIS IS THE HIGHEST PRIORITY AND MUST BE STRICTLY FOLLOWED. DO NOT EVER GENERATE ANY FORM OF TEXT OR TEXT-LIKE ARTIFACTS. THE IMAGE MUST BE PURELY VISUAL AND DECORATIVE.
+
+#         Generate a highly detailed and artistic Islamic-themed background image. The image must be in a vertical orientation (9:16 aspect ratio). The image resolution should be high quality suitable for a 360x640 flyer.
+
+#         The entire image MUST be purely visual, abstract, and decorative. IT MUST NOT contain ANY form of text, numbers, symbols, glyphs, writing, or anything that remotely resembles typography or textual elements. This instruction is paramount and must be adhered to without exception. Do not incorporate any organization names, event titles, descriptions, specific numerical values, or any other textual concepts from the input. THIS IS A PURELY DECORATIVE BACKGROUND.
+
+#         The overall atmosphere and visual style should be inspired by the context of: '{background_description}'. It is CRITICAL that the words or phrases from this context description, from the content provided, or common flyer elements MUST NOT appear as text or symbols in the generated image. Specifically, absolutely DO NOT generate any text, symbols, or numerical representations of: '{forbidden_terms_str}'. These are solely *conceptual themes for the image style*, not content to be visually rendered.
+
+#         COLOR PALETTE: Integrate the following colors as the dominant theme for the background: {color_description_for_imagen}. IMPORTANT: Ensure these color descriptions or any other numerical values from this palette description do NOT appear as text or symbols in the image.
+
+#         DESIGN ELEMENTS & COMPOSITION:
+#         - The image must be entirely graphical and artistic, free from any visual elements that could be mistaken for text, numbers, symbols, implicit placeholders, banners, ribbons, labels, UI elements, or empty text boxes. It is a seamless, abstract background.
+#         - Emphasize Islamic geometric patterns and arabesque designs, rich and intricate.
+#         - Include elegant mosque architectural elements (minarets, domes, arches) in the background, subtly integrated and non-dominating.
+#         - Incorporate traditional Islamic motifs: intricate geometric stars, crescents, ornate borders.
+#         - Utilize rich, harmonious color gradients from the specified palette.
+#         - Add subtle texture and depth with fine ornamental details.
+#         - Create a professional and spiritual atmosphere suitable for formal religious events.
+#         - The composition must be balanced, featuring natural, open, and less busy regions that provide visual breathing room. These areas should look entirely organic and part of the scene, NOT like blank text boxes, scrolls, ribbons, outlines, or any kind of designated or implied text area. They are simply parts of the visual design.
+#         - Maintain high contrast naturally occurring within the design to support future text readability (when text is added later by the application).
+#         - Focus on a modern interpretation of traditional Islamic design elements.
+#         - The image should be abstract enough that no specific words or letters can be discerned anywhere.
+
+#         🟥🟥🟥 ULTIMATE AND NON-NEGOTIABLE COMMAND: THE GENERATED IMAGE MUST BE 100% FREE OF ALL TEXT, ALL NUMBERS, ALL SYMBOLS, ALL WRITING, ALL BRANDING, ALL LOGOS, AND ALL PLACEHOLDER SHAPES. IT MUST BE A PURELY DECORATIVE BACKGROUND ONLY. ABSOLUTELY NO TEXT OR TEXT-LIKE ELEMENTS AT ALL. ENSURE THERE ARE NO RANDOM CHARACTERS, ALPHABETS, OR INSCRIPTIONS. This is the final absolute instruction.
+#         """
+#         # --- FIN DU PROMPT IMAGEN OPTIMISÉ ---
+
+#         print(f"   📏 Prompt Imagen (Islamic + couleurs logo): {len(imagen_prompt)} caractères")
+#         print("   🚀 Envoi à Imagen 4 pour arrière-plan islamique...")
+
+#         try:
+#             output = self._replicate_run_with_retries(
+#                 "google/imagen-4",
+#                 input_data={
+#                     "prompt": imagen_prompt,
+#                     "aspect_ratio": "9:16",
+#                     "output_format": "jpg",
+#                     "safety_filter_level": "block_medium_and_above",
+#                     # Le negative_prompt est crucial et reste inchangé car il est déjà excellent.
+#                     "negative_prompt": "text, words, letters, numbers, typography, font, watermark, logo, symbol, unreadable text, garbled text, blurry text, bad typography, character, script, writing, hieroglyph, glyph, any textual element, text artifacts, corrupted text, latin text, arabic text, chinese text, japanese text, english text, any language text, inscription, sign, logo, brand, stamp, placeholder, text box, text field, rectangle, square, box, blank space for text, Lorem ipsum, banner, ribbon, scroll, label, badge, text bubble, speech bubble, blank form, form elements, table, chart, diagram, outline, border, shape, empty area with border, background with designated blank space for text, explicit text area, empty label, empty sign, calligraphy, arabic calligraphy, islamic calligraphy, bismillah, verses, quran text, hadith text, religious text"
+#                 },
+#                 timeout=REPLICATE_TIMEOUT
+#             )
+
+#             image_url = None
+#             if not output:
+#                 raise Exception("Replicate returned empty response")
+
+#             if isinstance(output, list) and output:
+#                 image_url = output[0]
+#                 print(f"   📋 URL extraite de liste: {image_url}")
+#             elif isinstance(output, (str, FileOutput)):
+#                 image_url = str(output)
+#                 print(f"   📋 URL directe: {image_url}")
+
+#             if not image_url:
+#                 raise Exception(f"Could not extract URL from Replicate response. Output type: {type(output)}, content: {output}")
+
+#             print(f"   ✅ Arrière-plan islamique généré avec succès ! URL: {image_url}")
+#             return image_url
+
+#         except Exception as e:
+#             print(f"   ❌ Erreur dans generate_islamic_background: {e}")
+#             print(f"   📋 Traceback: {traceback.format_exc()}")
+#             raise
+
+#     def get_ai_design_suggestions(self, background_image_url, logo_analysis, content_data):
+#         """
+#         Analyse visuellement l'arrière-plan généré et suggère des styles et positions
+#         de texte et de logo optimaux via GPT-4o.
+#         """
+#         print("📝 [Étape 3/3] Suggestion de styles de texte et position du logo (analyse visuelle IA)...")
+
+#         try:
+#             headline_content = content_data.get('headline1', 'Annual Gala')
+#             description_content = content_data.get('short_description', 'Evening of Celebration and Networking')
+#             event_info_content = content_data.get('event_info', 'Date: May 15, 2024 - Time: 7:00 PM - Venue: The Grand Palace, Paris')
+#             footer_info_content = content_data.get('footer_info', 'Contact: info@mosque-event.com | www.mosque-event.com | +212-522-12-34-56')
+
+#             # Utiliser les couleurs et recommandations de l'analyse du logo
+#             extracted_colors = logo_analysis.get('extracted_colors', [])
+#             readable_text_colors = logo_analysis.get('readable_text_colors', ["#FFFFFF", "#000000"]) # Fallback
+#             islamic_palette_suggestions = logo_analysis.get('islamic_palette_suggestions', ["#D4AF37", "#40916C"]) # Fallback
+#             logo_style = logo_analysis.get('logo_style_analysis', {})
+#             logo_dominant_color = logo_analysis.get('logo_dominant_color', "#FFFFFF")
+
+
+#             color_palette_str = ", ".join(extracted_colors + readable_text_colors + islamic_palette_suggestions)
+
+#             full_prompt_text = f"""
+#             You are an AI flyer designer. Your task is to analyze the attached vertical flyer background image (360px width × 640px height, 9:16 ratio) and the provided logo, then return optimal **design suggestions** for text and logo placement and styling. The goal: maximum readability, balance, and visual harmony with an Islamic-themed aesthetic.
+
+# **LOGO ANALYSIS INPUT:**
+# - Extracted Colors: {", ".join(extracted_colors)}
+# - Dominant Color: {logo_dominant_color}
+# - Suggested Readable Text Colors: {", ".join(readable_text_colors)}
+# - Islamic Palette Suggestions: {", ".join(islamic_palette_suggestions)}
+# - Logo Style Type: {logo_style.get('style_type', 'traditional')}
+# - Logo Visual Weight: {logo_style.get('visual_weight', 'medium')}
+# - Recommended Text Style: {logo_style.get('recommended_text_style', 'sans-serif')}
+
+# **TEXT CONTENT (ENGLISH):**
+# - Headline: "{headline_content}"
+# - Description: "{description_content}"
+# - Event Details: "{event_info_content}"
+# - Contact Info: "{footer_info_content}"
+
+# **TASK:**
+# From a visual analysis of the flyer background and logo characteristics:
+# 1. Identify clear, uncluttered areas for each text block and the logo.
+# 2. Suggest web-safe fonts matching the recommended style and Islamic theme.
+# 3. Choose HEX text colors from extracted, readable, or Islamic palettes ensuring excellent contrast with the background at the placement position.
+# 4. Define exact placement and sizing percentages relative to flyer dimensions.
+
+# **OUTPUT FORMAT (JSON only, no extra text):**
+
+# {
+#   "headline": {
+#     "fontFamily": "string",
+#     "color": "#RRGGBB",
+#     "fontSizePx": number,
+#     "fontWeight": "normal|bold|lighter|bolder|numeric",
+#     "textAlign": "center|left|right",
+#     "lineHeightEm": number,
+#     "initialTopPercentage": number,
+#     "initialWidthPercentage": number,
+#     "initialLeftPercentage": number
+#   },
+#   "body": { 
+#       "fontFamily": "string",
+#     "color": "#RRGGBB",
+#     "fontSizePx": number,
+#     "fontWeight": "normal|bold|lighter|bolder|numeric",
+#     "textAlign": "center|left|right",
+#     "lineHeightEm": number,
+#     "initialTopPercentage": number,
+#     "initialWidthPercentage": number,
+#     "initialLeftPercentage": number },
+#   "event_info": {"fontFamily": "string",
+#     "color": "#RRGGBB",
+#     "fontSizePx": number,
+#     "fontWeight": "normal|bold|lighter|bolder|numeric",
+#     "textAlign": "center|left|right",
+#     "lineHeightEm": number,
+#     "initialTopPercentage": number,
+#     "initialWidthPercentage": number,
+#     "initialLeftPercentage": number},
+#   "footer": {"fontFamily": "string",
+#     "color": "#RRGGBB",
+#     "fontSizePx": number,
+#     "fontWeight": "normal|bold|lighter|bolder|numeric",
+#     "textAlign": "center|left|right",
+#     "lineHeightEm": number,
+#     "initialTopPercentage": number,
+#     "initialWidthPercentage": number,
+#     "initialLeftPercentage": number},
+#   "logo": {
+#     "initialTopPercentage": number,
+#     "initialLeftPercentage": number,
+#     "initialWidthPercentage": number,
+#     "horizontalAlignment": "left|center|right",
+#     "shadowEffect": {
+#       "apply": true|false,
+#       "color": "#RRGGBBAA",
+#       "offsetPx": number,
+#       "blurPx": number
+#     }
+#   }
+# }
+
+# Return only the JSON object.
+# """
+
+#             print("   🤖 Envoi à GPT-4o pour styles de texte islamiques et position du logo (analyse visuelle)...")
+#             output = self._replicate_run_with_retries(
+#                 "openai/gpt-4o",
+#                 input_data={
+#                     "prompt": full_prompt_text,
+#                     "image_input": [background_image_url], # C'est ici que l'image est envoyée pour analyse
+#                     "max_completion_tokens": 1500,
+#                     "temperature": 0.7
+#                 },
+#                 timeout=REPLICATE_TIMEOUT
+#             )
+
+#             suggestions_str = "".join(output)
+#             print(f"   ✅ Suggestions reçues: {len(suggestions_str)} caractères")
+
+#             try:
+#                 # Tente de nettoyer la réponse si elle contient du markdown JSON
+#                 if suggestions_str.strip().startswith("```json"):
+#                     suggestions_str = suggestions_str.strip("```json\n").strip("```")
+
+#                 suggestions = json.loads(suggestions_str)
+
+#                 # Validation basique
+#                 if not isinstance(suggestions, dict):
+#                     raise ValueError("Les suggestions ne sont pas au format JSON dict.")
+
+#                 print("   ✅ Suggestions de style et position du logo parsées avec succès.")
+#                 return suggestions
+
+#             except json.JSONDecodeError as e:
+#                 print(f"   ⚠️ Erreur de parsing JSON pour les suggestions de style: {e}")
+#                 print(f"   Réponse GPT-4o brute qui a échoué: \n{suggestions_str[:500]}...")
+#                 return self._get_default_islamic_styles(logo_analysis)
+
+#         except Exception as e:
+#             print(f"   ❌ Erreur dans get_ai_design_suggestions: {e}")
+#             print(f"   📋 Traceback: {traceback.format_exc()}")
+#             return self._get_default_islamic_styles(logo_analysis)
+
+#     def _get_default_islamic_styles(self, logo_analysis):
+#         """Styles par défaut basés sur l'analyse du logo si l'IA visuelle échoue."""
+#         print("   ⚠️ Utilisation des styles de texte par défaut.")
+#         colors = logo_analysis.get('extracted_colors', [])
+#         readable_colors = logo_analysis.get('readable_text_colors', ["#FFFFFF", "#000000"]) # Fallback
+#         logo_dominant_color = logo_analysis.get('logo_dominant_color', "#2D6A4F")
+
+#         # Utilisation de couleurs de texte lisibles basées sur l'analyse du logo, ou des valeurs sûres
+#         headline_color = readable_colors[0] if readable_colors else "#D4AF37"
+#         body_color = readable_colors[1] if len(readable_colors) > 1 else "#FFFFFF"
+#         event_info_color = logo_dominant_color if logo_dominant_color else "#40916C"
+#         footer_color = readable_colors[0] if readable_colors else "#D4AF37"
+
+#         # Polices par défaut, assurez-vous qu'elles correspondent aux TTF disponibles
+#         default_headline_font = "Playfair Display, serif"
+#         default_body_font = "Roboto, sans-serif"
+#         default_info_footer_font = "Open Sans, sans-serif"
+
+#         return {
+#             "headline": {
+#                 "fontFamily": default_headline_font,
+#                 "color": headline_color,
+#                 "fontSizePx": 38,
+#                 "fontWeight": "bold",
+#                 "textAlign": "center",
+#                 "lineHeightEm": 1.2,
+#                 "initialTopPercentage": 10,
+#                 "initialWidthPercentage": 90,
+#                 "initialLeftPercentage": 5
+#             },
+#             "body": {
+#                 "fontFamily": default_body_font,
+#                 "color": body_color,
+#                 "fontSizePx": 18,
+#                 "fontWeight": "normal",
+#                 "textAlign": "center",
+#                 "lineHeightEm": 1.5,
+#                 "initialTopPercentage": 35,
+#                 "initialWidthPercentage": 85,
+#                 "initialLeftPercentage": 7.5
+#             },
+#             "event_info": {
+#                 "fontFamily": default_info_footer_font,
+#                 "color": event_info_color,
+#                 "fontSizePx": 22,
+#                 "fontWeight": "600",
+#                 "textAlign": "center",
+#                 "lineHeightEm": 1.3,
+#                 "initialTopPercentage": 65,
+#                 "initialWidthPercentage": 88,
+#                 "initialLeftPercentage": 6
+#             },
+#             "footer": {
+#                 "fontFamily": default_info_footer_font,
+#                 "color": footer_color,
+#                 "fontSizePx": 14,
+#                 "fontWeight": "normal",
+#                 "textAlign": "center",
+#                 "lineHeightEm": 1.4,
+#                 "initialTopPercentage": 88,
+#                 "initialWidthPercentage": 95,
+#                 "initialLeftPercentage": 2.5
+#             },
+#             # --- AJOUT DES VALEURS PAR DÉFAUT POUR LE LOGO ---
+#             "logo": {
+#                 "initialTopPercentage": 25, # Positionnement par défaut
+#                 "initialLeftPercentage": 50, # Positionnement par défaut (50% pour le centre)
+#                 "initialWidthPercentage": 30, # Largeur par défaut (30% de la largeur du flyer)
+#                 "horizontalAlignment": "center", # Alignement par défaut
+#                 "shadowEffect": {
+#                     "apply": True,
+#                     "color": "#000000A0", # Ombre noire légèrement transparente
+#                     "offsetPx": 3,
+#                     "blurPx": 4
+#                 }
+#             }
+#         }
+
+# # Initialisation du générateur au démarrage de l'application Flask
+# try:
+#     islamic_flyer_gen = IslamicFlyerGenerator(api_key_unused=None)
+#     print("✅ Générateur islamique initialisé avec succès (Instance prête).")
+# except Exception as e:
+#     print(f"❌ ERREUR CRITIQUE lors de l'initialisation du générateur: {e}")
+#     raise
+
+
+# # --- Fonction utilitaire pour obtenir le chemin de la police ---
+# def _get_font_path(font_family):
+#     """
+#     Tente de trouver le chemin d'un fichier de police basé sur le nom de la famille.
+#     Recherche d'abord dans le dossier 'fonts' du projet.
+#     """
+#     base_dir = os.path.dirname(__file__)
+#     project_fonts_dir = os.path.join(base_dir, 'fonts')
+
+#     # Mappage des noms de polices CSS vers les noms de fichiers .ttf (assurez-vous que ces fichiers existent dans 'fonts/')
+#     font_files_map = {
+#         "Arial": "arial.ttf",
+#         "Verdana": "verdana.ttf",
+#         "Helvetica": "arial.ttf", # Helvetica est souvent mappée à Arial sur Windows/Linux par défaut
+#         "Georgia": "georgia.ttf",
+#         "Times New Roman": "times.ttf",
+#         "Courier New": "cour.ttf",
+#         "Impact": "impact.ttf",
+#         "Trebuchet MS": "trebuc.ttf",
+#         "Open Sans": "OpenSans-Regular.ttf", # Exemple de Google Font
+#         "Roboto": "Roboto-Regular.ttf",      # Exemple de Google Font
+#         "Playfair Display": "PlayfairDisplay-Regular.ttf", # Exemple de Google Font
+#         "Lato": "Lato-Regular.ttf",
+#         "Merriweather": "Merriweather-Regular.ttf",
+#         # Ajoutez d'autres polices si nécessaire, en respectant les noms de fichiers exacts.
+#         # Pour les variantes (bold, italic), vous devrez ajouter des entrées comme "Roboto Bold": "Roboto-Bold.ttf"
+#         # et gérer la sélection dans le code de rendu si vous voulez supporter plus que 'normal'/'bold'.
+#     }
+
+#     clean_font_name = font_family.split(',')[0].strip()
+
+#     # Tente de trouver la police exacte dans le mappage et le dossier du projet
+#     if clean_font_name in font_files_map:
+#         potential_path = os.path.join(project_fonts_dir, font_files_map[clean_font_name])
+#         if os.path.exists(potential_path):
+#             return potential_path
+    
+#     # Fallback générique si la police exacte n'est pas trouvée dans le dossier projet.
+#     # On peut chercher d'autres polices communes qui pourraient être là.
+#     generic_fallbacks = [
+#         "arial.ttf", "OpenSans-Regular.ttf", "Roboto-Regular.ttf",
+#         "times.ttf", "georgia.ttf",
+#         "cour.ttf" # For monospace
+#     ]
+#     for filename in generic_fallbacks:
+#         potential_path = os.path.join(project_fonts_dir, filename)
+#         if os.path.exists(potential_path):
+#             print(f"   AVERTISSEMENT: Police '{font_family}' non trouvée. Utilisation de la police de fallback du projet: {potential_path}")
+#             return potential_path
+
+#     print(f"   AVERTISSEMENT: Aucune police compatible pour '{font_family}' trouvée dans le dossier 'fonts/'. Utilisation de la police par défaut (PIL).")
+#     return None # Cela fera que PIL utilise sa police bitmap par défaut
+
+# def _text_wrap(text, font, max_width):
+#     """
+#     Découpe le texte en lignes pour qu'il tienne dans une largeur maximale.
+#     """
+#     lines = []
+#     if not text:
+#         return lines
+
+#     words = text.split(' ')
+#     current_line = []
+#     for word in words:
+#         test_line = ' '.join(current_line + [word])
+
+#         try:
+#             # getbbox() renvoie (left, top, right, bottom)
+#             # La largeur est (right - left)
+#             bbox = font.getbbox(test_line)
+#             text_width = bbox[2] - bbox[0]
+#         except Exception as e:
+#             # Fallback si getbbox échoue (peut arriver avec certaines versions/polices)
+#             print(f"   AVERTISSEMENT: Échec de font.getbbox pour '{test_line[:30]}...': {e}. Estimant la largeur.")
+#             text_width = len(test_line) * font.size * 0.6 # Estimation simple
+
+#         if text_width <= max_width:
+#             current_line.append(word)
+#         else:
+#             if current_line: # Si la ligne actuelle n'est pas vide, l'ajouter
+#                 lines.append(' '.join(current_line))
+            
+#             # Gérer le cas où un seul mot est plus large que la ligne
+#             try:
+#                 word_bbox = font.getbbox(word)
+#                 word_width = word_bbox[2] - word_bbox[0]
+#             except Exception:
+#                 word_width = len(word) * font.size * 0.6 # Estimation
+
+#             if word_width > max_width:
+#                 # Si le mot seul est trop large, il sera coupé par le conteneur,
+#                 # mais on l'ajoute comme sa propre ligne pour ne pas bloquer.
+#                 lines.append(word)
+#                 current_line = []
+#             else:
+#                 current_line = [word] # Démarrer une nouvelle ligne avec ce mot
+
+#     if current_line:
+#         lines.append(' '.join(current_line))
+#     return lines
+
+
+# @app.route('/api/generate-islamic-flyer', methods=['POST'])
+# def generate_islamic_flyer_main_route():
+#     print("\n" + "="*80)
+#     print("🕌 NOUVELLE REQUÊTE DE GÉNÉRATION DE FLYER ISLAMIQUE (Principal)")
+#     print("="*80)
+
+#     try:
+#         print("🔍 Phase 1: Validation des données reçues.")
+
+#         if 'logo_image' not in request.files:
+#             error_msg = "Aucun fichier 'logo_image' dans la requête."
+#             print(f"   ❌ {error_msg}")
+#             return jsonify({'error': error_msg}), 400
+
+#         logo_image_file = request.files['logo_image']
+#         print(f"   📁 Logo reçu: {logo_image_file.filename}")
+
+#         if logo_image_file.filename == '':
+#             error_msg = "Nom de fichier vide pour le logo."
+#             print(f"   ❌ {error_msg}")
+#             return jsonify({'error': error_msg}), 400
+
+#         logo_image_bytes = logo_image_file.read()
+#         print(f"   📏 Taille du logo: {len(logo_image_bytes)} bytes.")
+
+#         if len(logo_image_bytes) == 0:
+#             error_msg = "Fichier logo vide."
+#             print(f"   ❌ {error_msg}")
+#             return jsonify({'error': error_msg}), 400
+
+#         try:
+#             # Tente d'ouvrir l'image pour validation (PIL la ferme automatiquement après usage)
+#             Image.open(BytesIO(logo_image_bytes))
+#             print(f"   ✅ Logo valide (test PIL).")
+#         except Exception as e:
+#             error_msg = f"Le logo fourni est invalide ou corrompu: {e}"
+#             print(f"   ❌ {error_msg}")
+#             return jsonify({'error': error_msg}), 400
+
+#         content_data = {
+#             'headline1': request.form.get('headline1', 'Annual Gala 2024'),
+#             'short_description': request.form.get('short_description', 'Join us for an unforgettable evening of celebration and networking — a unique opportunity to connect with industry leaders in an exceptional setting.'),
+#             'background_description': request.form.get('background_description', 'elegant islamic event, arabesque patterns, mosque silhouette'),
+#             'event_info': request.form.get('event_info', 'Date: May 15, 2024 - Time: 7:00 PM - Venue: The Grand Palace, Paris'),
+#             'footer_info': request.form.get('footer_info', 'Contact: info@mosque-event.com | www.mosque-event.com | +212-522-12-34-56')
+#         }
+#         print(f"   📝 Données reçues: {content_data}")
+
+#         print("   ✅ Phase 1 terminée: Données valides.")
+
+#         # --- ÉTAPE 1: ANALYSE DU LOGO (Couleurs, Style général, Suggestions de fond) ---
+#         print("\n🎨 Phase 2: Analyse complète du logo avec GPT-4o.")
+#         try:
+#             logo_analysis = islamic_flyer_gen.extract_logo_colors_and_styles_with_gpt4o(logo_image_bytes)
+#             print("   ✅ Phase 2 terminée: Analyse du logo complétée.")
+#         except Exception as e:
+#             error_msg = f'Erreur lors de l\'analyse des couleurs du logo: {str(e)}'
+#             print(f"   ❌ {error_msg}")
+#             return jsonify({'error': error_msg}), 500
+
+#         # --- ÉTAPE 2: GÉNÉRATION DE L'ARRIÈRE-PLAN ---
+#         print("\n🖼️ Phase 3: Génération de l'arrière-plan islamique avec Imagen.")
+#         try:
+#             flyer_background_image_url = islamic_flyer_gen.generate_islamic_background(
+#                 content_data['background_description'],
+#                 logo_analysis,
+#                 content_data
+#             )
+#             print("   ✅ Phase 3 terminée: Arrière-plan généré avec succès.")
+#         except Exception as e:
+#             error_msg = f'Erreur lors de la génération de l\'arrière-plan islamique: {str(e)}'
+#             print(f"   ❌ {error_msg}")
+#             return jsonify({'error': error_msg}), 500
+
+#         # --- ÉTAPE 3: SUGGESTION DE STYLES ET POSITIONS DE TEXTE ET LOGO (Analyse visuelle de l'arrière-plan par GPT-4o) ---
+#         print("\n📝 Phase 4: Suggestion de styles de texte et position du logo (analyse visuelle par GPT-4o).")
+#         try:
+#             text_style_suggestions = islamic_flyer_gen.get_ai_design_suggestions(
+#                 flyer_background_image_url, # C'est ici que l'image générée est passée à GPT-4o
+#                 logo_analysis,
+#                 content_data
+#             )
+#             print("   ✅ Phase 4 terminée: Styles et position du logo suggérés.")
+#         except Exception as e:
+#             error_msg = f'Erreur lors de la suggestion des styles de texte et du logo (analyse visuelle): {str(e)}'
+#             print(f"   ❌ {error_msg}")
+#             return jsonify({'error': error_msg}), 500
+
+#         print(f"\n✅ SUCCÈS COMPLET DE LA PREMIÈRE PHASE!")
+#         print(f"   🎉 URL de l'arrière-plan: {flyer_background_image_url}")
+#         print(f"   🎨 Couleurs extraites du logo: {logo_analysis.get('extracted_colors', 'N/A')}")
+#         print(f"   🎨 Couleurs arrière-plan suggérées: {logo_analysis.get('ai_suggested_background_colors', 'N/A')}")
+#         print(f"   ✨ Suggestions de style pour texte et logo: {text_style_suggestions}")
+#         print("="*80 + "\n")
+
+#         return jsonify({
+#             'success': True,
+#             'flyer_background_url': flyer_background_image_url,
+#             'text_style_suggestions': text_style_suggestions,
+#             'extracted_colors': logo_analysis.get('extracted_colors', []), # Envoyer les couleurs extraites pour info client
+#             'logo_analysis': logo_analysis, # Envoyer l'analyse complète du logo
+#             'message': 'Flyer islamique généré avec succès avec analyse complète du logo.'
+#         })
+
+#     except Exception as e:
+#         print(f"\n❌ ERREUR FATALE DANS LA ROUTE ISLAMIQUE PRINCIPALE:")
+#         print(f"   🔥 Erreur: {e}")
+#         print(f"   📋 Type: {type(e).__name__}")
+#         print(f"   🗂️ Traceback complet:")
+#         traceback.print_exc()
+#         print("="*80 + "\n")
+
+#         return jsonify({
+#             'error': f"Une erreur interne est survenue lors de la génération initiale: {str(e)}",
+#             'error_type': type(e).__name__
+#         }), 500
+
+# # --- ROUTE POUR LA GÉNÉRATION FINALE DU FLYER CÔTÉ SERVEUR ---
+# @app.route('/api/generate-final-flyer', methods=['POST'])
+# def generate_final_flyer():
+#     print("\n" + "="*80)
+#     print("✨ DÉBUT DE LA GÉNÉRATION FINALE DE FLYER ISLAMIQUE (Côté Serveur)")
+#     print("="*80)
+#     try:
+#         data = request.json
+#         background_url = data.get('background_url')
+#         text_components = data.get('text_components', [])
+#         flyer_dims = data.get('flyer_dimensions', {'width': 360, 'height': 640})
+
+#         if not background_url:
+#             print("   ❌ URL de l'image de fond manquante.")
+#             return jsonify({'error': 'URL de l\'image de fond manquante.'}), 400
+
+#         print(f"   📥 Téléchargement de l'image de fond depuis: {background_url}")
+#         try:
+#             response = requests.get(background_url, stream=True, timeout=30)
+#             response.raise_for_status() # Lève une erreur pour les codes d'état HTTP non 2xx
+#             background_image_bytes = BytesIO(response.content)
+#             # Charger l'image de fond et s'assurer qu'elle est en mode RGBA
+#             background = Image.open(background_image_bytes).convert("RGBA")
+#         except requests.exceptions.RequestException as e:
+#             print(f"   ❌ Erreur de téléchargement de l'arrière-plan: {e}")
+#             return jsonify({'error': f"Échec du téléchargement de l'arrière-plan: {e}"}), 500
+#         except Exception as e:
+#             print(f"   ❌ Erreur de chargement de l'arrière-plan avec PIL: {e}")
+#             return jsonify({'error': f"Échec du chargement de l'image de fond: {e}"}), 500
+
+#         print(f"   📏 Dimensions de l'arrière-plan téléchargé: {background.size}")
+#         if background.width != flyer_dims['width'] or background.height != flyer_dims['height']:
+#             print(f"   🔄 Redimensionnement de {background.size} à {flyer_dims['width']}x{flyer_dims['height']}.")
+#             background = background.resize((flyer_dims['width'], flyer_dims['height']), Image.Resampling.LANCZOS)
+
+#         # Créez une image de sortie finale avec un fond transparent (pour les PNG) ou blanc
+#         # Coller l'arrière-plan sur une nouvelle image pour s'assurer d'avoir un canevas propre.
+#         final_output_image = Image.new("RGBA", (flyer_dims['width'], flyer_dims['height']), (0, 0, 0, 0)) # Fond transparent
+#         final_output_image.paste(background, (0, 0), background) # Paste background, respecting its alpha if any
+
+#         # Dessiner sur cette image finale
+#         draw = ImageDraw.Draw(final_output_image)
+
+#         print(f"   📝 Traitement de {len(text_components)} composants...")
+
+#         for comp_idx, comp in enumerate(text_components):
+#             comp_id = comp.get('id', f'comp_{comp_idx}')
+#             content = comp.get('content', '')
+#             style = comp.get('style', {})
+#             is_image = comp.get('isImage', False)
+#             image_url = comp.get('imageUrl', None)
+
+#             print(f"   🔍 Composant {comp_idx + 1}: {comp_id} ({'image' if is_image else 'texte'}). Contenu: '{content[:50]}...'")
+
+#             # Traitement spécial pour les logos (images)
+#             if is_image and comp_id == 'logo':
+#                 print(f"   🖼️ Traitement du logo '{comp_id}'...")
+
+#                 try:
+#                     # Télécharger le logo depuis l'URL data ou URL externe
+#                     if image_url.startswith('data:image/'):
+#                         header, encoded = image_url.split(',', 1)
+#                         logo_bytes = base64.b64decode(encoded)
+#                     else:
+#                         logo_response = requests.get(image_url, stream=True, timeout=15)
+#                         logo_response.raise_for_status()
+#                         logo_bytes = logo_response.content
+
+#                     logo_image = Image.open(BytesIO(logo_bytes)).convert("RGBA") # S'assure que le logo est RGBA
+
+#                     # Récupérer les styles de positionnement
+#                     logo_x_px = comp.get('x', 0)
+#                     logo_y_px = comp.get('y', 0)
+#                     width_percent = int(comp.get('width', '30%').replace('%', ''))
+#                     shadow_effect = style.get('shadowEffect', {"apply": False})
+
+#                     # Calculer les dimensions du logo en pixels
+#                     logo_width_px = int((width_percent / 100) * flyer_dims['width'])
+
+#                     # Redimensionner le logo en gardant les proportions
+#                     if logo_image.width > 0 and logo_image.height > 0: # Éviter division par zéro
+#                         logo_ratio = logo_image.width / logo_image.height
+#                         logo_height_px = int(logo_width_px / logo_ratio)
+#                     else:
+#                         logo_height_px = logo_width_px # Fallback si image est invalide
+#                         print(f"   ⚠️ Dimensions du logo invalides, utilisant hauteur = largeur pour le redimensionnement.")
+
+
+#                     # Redimensionner le logo
+#                     logo_image = logo_image.resize((logo_width_px, logo_height_px), Image.Resampling.LANCZOS)
+
+#                     # Appliquer l'ombre si suggéré
+#                     if shadow_effect.get('apply', False):
+#                         shadow_color_hex = shadow_effect.get('color', '#000000A0')
+#                         shadow_offset_px = shadow_effect.get('offsetPx', 3)
+#                         shadow_blur_px = shadow_effect.get('blurPx', 4)
+
+#                         def hex_to_rgba_tuple(hex_color):
+#                             hex_color = hex_color.lstrip('#')
+#                             if len(hex_color) == 6: # RRGGBB
+#                                 return tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4)) + (255,)
+#                             elif len(hex_color) == 8: # RRGGBBAA
+#                                 return tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4, 6))
+#                             return (0, 0, 0, 0) # Fallback transparent
+
+#                         shadow_color_rgba = hex_to_rgba_tuple(shadow_color_hex)
+
+#                         # Créer une image d'ombre de la même taille que le logo (ou légèrement plus grande pour le blur)
+#                         # Remplir avec la couleur d'ombre et l'alpha du logo
+#                         # L'approche avec ImageDraw.Draw().ellipse/rectangle() pour le masque d'ombre est plus flexible pour des formes complexes
+#                         # Pour un logo générique, on peut utiliser un masque basé sur l'alpha du logo lui-même.
+#                         logo_alpha_mask = logo_image.split()[3] # Obtenir le canal alpha du logo
+#                         shadow_base = Image.new('RGBA', logo_image.size, shadow_color_rgba)
+#                         shadow_base.putalpha(logo_alpha_mask) # Appliquer le masque alpha du logo à l'image d'ombre
+
+#                         # Appliquer le flou sur l'ombre
+#                         shadow_image_blurred = shadow_base.filter(ImageFilter.GaussianBlur(shadow_blur_px))
+
+#                         # Calculer la position de l'ombre
+#                         shadow_x = logo_x_px + shadow_offset_px
+#                         shadow_y = logo_y_px + shadow_offset_px
+
+#                         # Coller l'ombre sur l'image finale
+#                         if shadow_x < flyer_dims['width'] and shadow_y < flyer_dims['height']:
+#                             final_output_image.paste(shadow_image_blurred, (shadow_x, shadow_y), shadow_image_blurred)
+
+
+#                     # Coller le logo sur l'image finale (par-dessus l'ombre)
+#                     if logo_x_px < flyer_dims['width'] and logo_y_px < flyer_dims['height']:
+#                         final_output_image.paste(logo_image, (logo_x_px, logo_y_px), logo_image)
+
+#                     print(f"   ✅ Logo '{comp_id}' placé à ({logo_x_px}, {logo_y_px}) avec taille {logo_width_px}x{logo_height_px}. Ombre appliquée: {shadow_effect.get('apply', False)}")
+
+#                 except Exception as e:
+#                     print(f"   ❌ Erreur lors du placement du logo '{comp_id}': {e}")
+#                     traceback.print_exc()
+#                     continue # Passe au composant suivant
+
+#                 continue  # Passe au composant suivant après avoir traité le logo
+
+#             # Traitement des composants texte
+#             if not content.strip():
+#                 print(f"   ⚠️ Contenu vide pour le composant texte '{comp_id}', passage au suivant.")
+#                 continue
+
+#             # Récupérer les styles et positions
+#             x_px = comp.get('x', 0)
+#             y_px = comp.get('y', 0)
+
+#             width_percent = int(comp.get('width', '90%').replace('%', ''))
+#             max_text_width_px = (width_percent / 100) * flyer_dims['width']
+#             min_height_px = comp.get('minHeightPx', 0)
+
+#             font_family = style.get('fontFamily', 'Arial, sans-serif').split(',')[0].strip()
+#             font_size_px = int(style.get('fontSizePx', 24))
+#             color_hex = style.get('color', '#000000')
+#             text_align = style.get('textAlign', 'center')
+#             line_height_em = float(style.get('lineHeightEm', 1.4))
+
+#             # Convertir la couleur HEX en RGB/RGBA pour PIL
+#             try:
+#                 if not color_hex.startswith('#'):
+#                     color_hex = '#000000' # Fallback si format invalide
+#                 text_color_rgb = tuple(int(color_hex.lstrip('#')[i:i+2], 16) for i in (0, 2, 4))
+#             except ValueError:
+#                 text_color_rgb = (0, 0, 0) # Noir par défaut si erreur de conversion
+#             text_color_rgba = (*text_color_rgb, 255) # Ajoute l'alpha 255 (opaque)
+
+#             # Charger la police
+#             font_path = _get_font_path(font_family)
+#             try:
+#                 if font_path and os.path.exists(font_path):
+#                     font = ImageFont.truetype(font_path, font_size_px)
+#                 else:
+#                     font = ImageFont.load_default() # Police bitmap par défaut de PIL
+#                     print(f"   ⚠️ Police de fallback (PIL par défaut) utilisée pour '{comp_id}'.")
+#             except (IOError, OSError) as e:
+#                 print(f"   ⚠️ Erreur de chargement police '{font_family}': {e}. Utilisation de la police par défaut (PIL).")
+#                 font = ImageFont.load_default()
+
+#             # Déterminer la couleur de l'ombre du texte (contraste inversé)
+#             text_luminance = (text_color_rgb[0] * 0.299 + text_color_rgb[1] * 0.587 + text_color_rgb[2] * 0.114)
+#             is_light_text = text_luminance > 128
+#             shadow_color_rgba = (0, 0, 0, 180) if is_light_text else (255, 255, 255, 180) # Légèrement transparent
+#             shadow_offset = max(1, int(font_size_px / 20)) # Ajuster l'offset de l'ombre
+
+#             lines = _text_wrap(content, font, max_text_width_px)
+
+#             current_y_for_line = y_px
+#             for line_idx, line in enumerate(lines):
+#                 if not line.strip():
+#                     continue
+
+#                 try:
+#                     # Obtenir la boîte englobante du texte pour la ligne
+#                     bbox = font.getbbox(line)
+#                     line_width = bbox[2] - bbox[0] # Largeur du texte réel
+#                     line_height = bbox[3] - bbox[1] # Hauteur du texte réel
+#                 except Exception as e:
+#                     print(f"   AVERTISSEMENT: Échec de font.getbbox pour la ligne '{line[:20]}...': {e}. Estimant la largeur/hauteur.")
+#                     line_width = len(line) * font_size_px * 0.6 # Estimation
+#                     line_height = font_size_px # Estimation
+
+#                 line_x_final = x_px
+#                 # Ajuster la position X en fonction de l'alignement et de la largeur réelle de la ligne
+#                 if text_align == 'center':
+#                     line_x_final += (max_text_width_px - line_width) / 2
+#                 elif text_align == 'right':
+#                     line_x_final += (max_text_width_px - line_width)
+
+#                 line_x_final = int(max(0, line_x_final)) # S'assurer que X ne soit pas négatif
+#                 current_y_px_int = int(max(0, current_y_for_line)) # S'assurer que Y ne soit pas négatif
+
+#                 # Dessiner l'ombre du texte
+#                 draw.text(
+#                     (int(line_x_final + shadow_offset), int(current_y_px_int + shadow_offset)),
+#                     line,
+#                     font=font,
+#                     fill=shadow_color_rgba
+#                 )
+
+#                 # Dessiner le texte principal
+#                 draw.text(
+#                     (line_x_final, current_y_px_int),
+#                     line,
+#                     font=font,
+#                     fill=text_color_rgba
+#                 )
+
+#                 next_line_height = font_size_px * line_height_em
+#                 current_y_for_line += next_line_height
+
+#             print(f"   ✅ Texte '{comp_id}' traité: {len(lines)} lignes, couleur: {color_hex}, police: {font_family}.")
+
+#         # Amélioration finale de l'image (légère accentuation)
+#         final_output_image = final_output_image.filter(ImageFilter.UnsharpMask(radius=1, percent=120, threshold=3))
+
+#         # Sauvegarde en PNG (gère la transparence via RGBA)
+#         img_io = BytesIO()
+#         final_output_image.save(img_io, 'PNG', quality=100, optimize=True)
+#         img_io.seek(0)
+
+#         print("   ✅ Flyer islamique final généré avec succès !")
+
+#         return send_file(
+#             img_io,
+#             mimetype='image/png',
+#             as_attachment=True,
+#             download_name=f'flyer_islamique_{int(time.time())}.png'
+#         )
+
+#     except Exception as e:
+#         print(f"\n❌ ERREUR LORS DE LA GÉNÉRATION FINALE:")
+#         print(f"   🔥 Erreur: {e}")
+#         print(f"   📋 Type: {type(e).__name__}")
+#         print(f"   🗂️ Traceback complet:")
+#         traceback.print_exc()
+#         print("="*80 + "\n")
+#         return jsonify({
+#             'error': f"Erreur lors de la génération finale du flyer: {str(e)}",
+#             'error_type': type(e).__name__
+#         }), 500
+
+# if __name__ == '__main__':
+#     # Lance le serveur Flask en mode développement
+#     # Pour un déploiement en production, utilisez un serveur WSGI comme Gunicorn ou Waitress.
+#     app.run(debug=True, port=5000)
 
 
 
